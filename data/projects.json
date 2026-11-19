@@ -15,6 +15,16 @@
   ]
  },
  {
+  "id": "nsp-cocot",
+  "name": "Nhà sấy phun – Cổ cột",
+  "file": "data/nsp-cocot.json"
+ },
+ {
+  "id": "nsp-cot1",
+  "name": "Nhà sấy phun – Cột tầng 1",
+  "file": "data/nsp-cot1.json"
+ },
+ {
   "id": "nk-mong",
   "name": "Nhà kho – Móng",
   "file": "data/nk-mong.json",
