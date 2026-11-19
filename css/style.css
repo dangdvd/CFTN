@@ -56,9 +56,9 @@ main{flex:1;display:flex;min-height:0}
 .mong polygon{stroke:#334155;stroke-width:6;stroke-opacity:.55}
 .mong:hover polygon{stroke:#0f172a;stroke-opacity:1;stroke-width:12}
 .mong.sel polygon{stroke:var(--acc);stroke-width:26;stroke-opacity:1;stroke-dasharray:60 30}
-.mong.cell polygon{stroke:#7030A0;stroke-width:8;stroke-opacity:.55;stroke-dasharray:40 30}
-.mong.cell:hover polygon{stroke-opacity:1;stroke-width:14}
-.mong.cell.sel polygon{stroke:var(--acc);stroke-width:26;stroke-opacity:1;stroke-dasharray:60 30}
+.mong.cell path{stroke:#7030A0;stroke-width:8;stroke-opacity:.55;stroke-dasharray:40 30}
+.mong.cell:hover path{stroke-opacity:1;stroke-width:14}
+.mong.cell.sel path{stroke:var(--acc);stroke-width:26;stroke-opacity:1;stroke-dasharray:60 30}
 .mong.cell text{fill:#4a1d6e;font-weight:600;opacity:.7}
 .mong.cell.done text{opacity:.9}
 .mong text{fill:#0f172a;font-weight:700;pointer-events:none;dominant-baseline:central;text-anchor:middle}

@@ -54,8 +54,18 @@ function levelIn(prj, map, n, asof) {
   return 0;
 }
 function level(n, asof) { return levelIn(P, data, n, asof); }
-function itemName(n, prj) { return isCell(n) ? `Ô ${n.slice(1)}` : `${UC(prj)} ${n}`; }
-const sortKey = (n) => (isCell(n) ? 100000 + Number(n.slice(1)) : Number(n));
+// Số hiệu hiển thị của ô (id giữ cố định để dữ liệu không lệch khi bỏ bớt ô)
+function cellLabel(n, prj) {
+  prj = prj || P;
+  if (!prj._cl) { prj._cl = {}; (prj.cells || []).forEach((c) => (prj._cl[c.n] = c.t)); }
+  return prj._cl[n] || n.slice(1);
+}
+function itemName(n, prj) { return isCell(n) ? `Ô ${cellLabel(n, prj)}` : `${UC(prj)} ${n}`; }
+const sortKey = (n) => (isCell(n) ? 100000 + Number(cellLabel(n)) : Number(n));
+// Đường SVG cho ô có nhiều vòng (vòng ngoài + lỗ móng), tô theo evenodd
+function ringsPath(rings) {
+  return rings.map((p) => { let d = `M${p[0]},${p[1]}`; for (let i = 2; i < p.length; i += 2) d += `L${p[i]},${p[i + 1]}`; return d + "Z"; }).join("");
+}
 // Thống kê: cnt[i] = số cấu kiện đã xong công tác i (cộng dồn), tot[i] = tổng số cấu kiện của công tác i
 function statsIn(prj, map, asof) {
   const cnt = [0, 0, 0, 0, 0, 0], tot = [0, 0, 0, 0, 0, 0], cs = prj.cells ? (prj.cellStep ?? 5) : -1;
@@ -256,11 +266,10 @@ function buildMap() {
   img.setAttribute("width", P.width); img.setAttribute("height", P.height);
   img.setAttribute("preserveAspectRatio", "none");
   svg.appendChild(img);
-  (P.cells || []).forEach(({ n, t: label, p, l, f }) => {
+  (P.cells || []).forEach(({ n, t: label, r: rings, l, f }) => {
     const g = document.createElementNS(NS, "g"); g.setAttribute("class", "mong cell"); g.dataset.n = n;
-    const r = document.createElementNS(NS, "polygon");
-    const pts = []; for (let i = 0; i < p.length; i += 2) pts.push(p[i] + "," + p[i + 1]);
-    r.setAttribute("points", pts.join(" "));
+    const r = document.createElementNS(NS, "path");
+    r.setAttribute("d", ringsPath(rings)); r.setAttribute("fill-rule", "evenodd");
     const t = document.createElementNS(NS, "text");
     t.setAttribute("x", l[0]); t.setAttribute("y", l[1]); t.setAttribute("font-size", f);
     t.textContent = "Ô" + label;
@@ -514,7 +523,7 @@ function renderMulti(ro) {
   const panel = $("panel"), list = [...sel].sort((a, b) => sortKey(a) - sortKey(b));
   const allowed = ALL_STEPS.filter((i) => list.every((n) => stepsFor(P, n).includes(i)));
   let h = `<div class="selhead"><b>${list.length} cấu kiện đã chọn</b><small>bấm để thêm / bỏ</small></div>${ro}`;
-  h += `<div class="multi"><div class="chips">${list.map((n) => `<span>${esc(isCell(n) ? "Ô " + n.slice(1) : n)}</span>`).join("")}</div>`;
+  h += `<div class="multi"><div class="chips">${list.map((n) => `<span>${esc(isCell(n) ? "Ô " + cellLabel(n) : n)}</span>`).join("")}</div>`;
   if (canEdit() && !allowed.length) {
     h += `<div class="note">Đang chọn lẫn ô lấp đất và ${U()}. Hãy chọn riêng từng loại để cập nhật.</div>`;
   } else if (canEdit()) {
@@ -622,7 +631,7 @@ async function exportExcel() {
     const aoa = [[UC(), ...STEPS.map((s) => s.name), "Công tác hiện tại", "Cập nhật lần cuối", "Người cập nhật"]];
     P.geo.map((g) => g.n).concat((P.cells || []).map((c) => c.n)).sort((a, b) => sortKey(a) - sortKey(b)).forEach((n) => {
       const r = rec(n), l = level(n, asof), allowed = stepsFor(P, n);
-      aoa.push([isCell(n) ? "Ô " + n.slice(1) : Number(n), ...norm(r.d).map((d, i) => (d && d <= asof && allowed.includes(i) ? { t: "n", v: excelSerial(d), z: "dd/mm/yyyy" } : "")),
+      aoa.push([isCell(n) ? "Ô " + cellLabel(n) : Number(n), ...norm(r.d).map((d, i) => (d && d <= asof && allowed.includes(i) ? { t: "n", v: excelSerial(d), z: "dd/mm/yyyy" } : "")),
         l === 0 ? (isCell(n) ? "Chưa lấp đất" : "Chưa thi công") : STEPS[l - 1].name, r.at ? new Date(r.at).toLocaleString("vi-VN") : "", r.byName || ""]);
     });
     const ws = X.utils.aoa_to_sheet(aoa);
@@ -664,12 +673,11 @@ async function renderPlanCanvas(prj, map, asof) {
   const img = new Image(); img.src = prj.image; await img.decode();
   c.drawImage(img, 0, head, mapW, mapH);
   const { cnt, tot } = statsIn(prj, map, asof), cs = prj.cells ? (prj.cellStep ?? 5) : -1;
-  (prj.cells || []).forEach(({ n, t: label, p, l: lb, f }) => {
+  (prj.cells || []).forEach(({ n, t: label, r: rings, l: lb, f }) => {
     const l = levelIn(prj, map, n, asof);
-    c.beginPath(); c.moveTo(p[0] * s, head + p[1] * s);
-    for (let i = 2; i < p.length; i += 2) c.lineTo(p[i] * s, head + p[i + 1] * s);
-    c.closePath();
-    if (l) { c.globalAlpha = 0.45; c.fillStyle = colorOf(l); c.fill(); }
+    c.beginPath();
+    rings.forEach((p) => { c.moveTo(p[0] * s, head + p[1] * s); for (let i = 2; i < p.length; i += 2) c.lineTo(p[i] * s, head + p[i + 1] * s); c.closePath(); });
+    if (l) { c.globalAlpha = 0.45; c.fillStyle = colorOf(l); c.fill("evenodd"); }
     c.globalAlpha = 0.7; c.strokeStyle = "#7030A0"; c.lineWidth = 2; c.setLineDash([10, 8]); c.stroke(); c.setLineDash([]);
     c.globalAlpha = 0.75; c.fillStyle = "#4a1d6e"; c.font = `${Math.max(14, f * s * 0.8)}px Arial`; c.textAlign = "center"; c.textBaseline = "middle";
     c.fillText("Ô" + label, lb[0] * s, head + lb[1] * s); c.globalAlpha = 1;
