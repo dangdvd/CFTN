@@ -22,5 +22,17 @@
   "name": "Nhà kho – Đà kiềng",
   "file": "data/nk-dakieng.json",
   "excelSheet": "NKho_DaKieng"
+ },
+ {
+  "id": "nvp-mong",
+  "name": "Nhà văn phòng – Móng",
+  "file": "data/nvp-mong.json",
+  "excelSheet": "NVP_Mong"
+ },
+ {
+  "id": "nvp-dakieng",
+  "name": "Nhà văn phòng – Đà kiềng",
+  "file": "data/nvp-dakieng.json",
+  "excelSheet": "NVP_DaKieng"
  }
 ]

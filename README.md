@@ -7,7 +7,7 @@ Chạy trên **GitHub Pages** (miễn phí), dữ liệu và đăng nhập dùng
 - 3 quyền: **Chỉ xem** · **Cập nhật** · **Quản trị**
 - Bấm vào móng để nhập ngày hoàn thành 6 công tác (Đào đất → Lấp đất), màu tự đổi, bảng tổng hợp tự tính
 - Chọn nhiều móng để cập nhật một lúc; xem mặt bằng tại một ngày bất kỳ; lịch sử ai sửa gì
-- 4 mặt bằng: **Nhà sấy phun** (Móng, Đà kiềng) và **Nhà kho** (Móng, Đà kiềng) – chọn ở ô *Mặt bằng*, link riêng từng mặt bằng: `#nsp-mong`, `#nsp`, `#nk-mong`, `#nk-dakieng`
+- 6 mặt bằng: **Nhà sấy phun**, **Nhà kho**, **Nhà văn phòng** (mỗi nhà Móng + Đà kiềng; NVP: `#nvp-mong`, `#nvp-dakieng`) – chọn ở ô *Mặt bằng*, link riêng từng mặt bằng: `#nsp-mong`, `#nsp`, `#nk-mong`, `#nk-dakieng`
 - **Ô lấp đất** (Nhà sấy phun – Đà kiềng): 71 ô giữa các đà kiềng (Ô1…Ô71, đánh số theo hàng từ trên xuống, trái sang phải; bỏ hố pit và hố thang máy, khoét phần bệ móng có cọc). Lấp đất của mặt bằng này = số ô đã lấp / tổng số ô; đà kiềng chỉ theo dõi 5 công tác đầu
 - **Ô lấp đất** (Nhà kho – Đà kiềng): 160 ô chia theo lưới trục 3-1…3-13 × 3-M…3-A; ô trục nào có đà kiềng ngăn thành vùng kín thì chia nhỏ hơn; cột biên phải ôm theo đà kiềng xiên; bỏ MF1, MF2, MF3, hố tiếp liệu
 - Nhập từ Excel: chọn file highlight, app tự nhận các sheet `NSP_Mong`, `NSP_DaKieng`, `NKho_Mong`, `NKho_DaKieng` (cột AA = Móng, AD:AI = ngày) · Xuất Excel · Xuất ảnh PNG · **Xuất PDF A3** (mặt bằng đang xem hoặc tất cả mặt bằng, mỗi trang một mặt bằng)
