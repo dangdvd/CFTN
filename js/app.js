@@ -286,7 +286,9 @@ function fit(cover) {
 }
 function zoomAt(f, cx, cy) {
   const svg = $("map"), r = svg.getBoundingClientRect();
-  const nw = vb.w / f; if (nw < P.width / 14 || nw > P.width * 3) return;
+  let nw = vb.w / f;
+  const minW = P.width / 20, maxW = P.width * 3;
+  if (nw < minW) { f = vb.w / minW; nw = minW; } else if (nw > maxW) { f = vb.w / maxW; nw = maxW; }
   const px = vb.x + ((cx - r.left) / r.width) * vb.w, py = vb.y + ((cy - r.top) / r.height) * vb.h;
   vb.w = nw; vb.h = vb.h / f; vb.x = px - ((cx - r.left) / r.width) * vb.w; vb.y = py - ((cy - r.top) / r.height) * vb.h; setVB();
 }
@@ -300,33 +302,63 @@ function bindUI() {
   $("zout").onclick = () => centerZoom(1 / 1.4);
   $("zfit").onclick = () => fit(false);
 
-  const ptrs = new Map(); let moved = false, start = null, pinch = null;
+  // Kéo 1 ngón = di chuyển; 2 ngón = phóng to quanh tâm 2 ngón + di chuyển theo tâm.
+  // Mỗi khi số ngón thay đổi, gesture được đặt lại từ vị trí hiện tại → không bị nhảy khi nhấc 1 ngón.
+  const ptrs = new Map(); let moved = false, gest = null;
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  function resetGesture() {
+    const a = [...ptrs.values()];
+    if (a.length === 1) gest = { type: "pan", x: a[0].x, y: a[0].y, vx: vb.x, vy: vb.y };
+    else if (a.length >= 2) gest = { type: "pinch", d: dist(a[0], a[1]), mx: (a[0].x + a[1].x) / 2, my: (a[0].y + a[1].y) / 2 };
+    else gest = null;
+  }
   svg.addEventListener("pointerdown", (e) => {
-    svg.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (ptrs.size === 1) { moved = false; start = { x: e.clientX, y: e.clientY, vx: vb.x, vy: vb.y }; }
-    if (ptrs.size === 2) { const a = [...ptrs.values()]; pinch = { d: Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y) }; moved = true; }
+    try { svg.setPointerCapture(e.pointerId); } catch (x) {}
+    if (ptrs.size === 0) moved = false;
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (ptrs.size >= 2) moved = true;
+    resetGesture();
   });
   svg.addEventListener("pointermove", (e) => {
-    if (!ptrs.has(e.pointerId)) return; ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (ptrs.size === 2 && pinch) {
-      const a = [...ptrs.values()], d = Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y);
-      if (d > 0) { zoomAt(d / pinch.d, (a[0].x + a[1].x) / 2, (a[0].y + a[1].y) / 2); pinch.d = d; } return;
+    if (!ptrs.has(e.pointerId) || !gest) return;
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const r = svg.getBoundingClientRect(), a = [...ptrs.values()];
+    if (gest.type === "pinch" && a.length >= 2) {
+      const d = dist(a[0], a[1]), mx = (a[0].x + a[1].x) / 2, my = (a[0].y + a[1].y) / 2;
+      // di chuyển theo tâm 2 ngón
+      vb.x -= ((mx - gest.mx) / r.width) * vb.w; vb.y -= ((my - gest.my) / r.height) * vb.h;
+      // phóng to quanh tâm 2 ngón
+      if (d > 0 && gest.d > 0) zoomAt(d / gest.d, mx, my); else setVB();
+      gest.d = d; gest.mx = mx; gest.my = my;
+      return;
     }
-    if (ptrs.size === 1 && start) {
-      const dx = e.clientX - start.x, dy = e.clientY - start.y;
+    if (gest.type === "pan") {
+      const dx = e.clientX - gest.x, dy = e.clientY - gest.y;
       if (!moved && Math.hypot(dx, dy) > 6) { moved = true; svg.classList.add("dragging"); }
-      if (moved) { const r = svg.getBoundingClientRect(); vb.x = start.vx - (dx / r.width) * vb.w; vb.y = start.vy - (dy / r.height) * vb.h; setVB(); }
+      if (moved) { vb.x = gest.vx - (dx / r.width) * vb.w; vb.y = gest.vy - (dy / r.height) * vb.h; setVB(); }
     }
   });
   const endPtr = (e) => {
-    const single = ptrs.size === 1; ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null;
-    if (single && !moved && start && e.type === "pointerup") {
+    if (!ptrs.has(e.pointerId)) return;
+    const tap = ptrs.size === 1 && !moved && e.type === "pointerup";
+    ptrs.delete(e.pointerId);
+    if (tap) {
       const el = document.elementFromPoint(e.clientX, e.clientY), g = el && el.closest && el.closest(".mong");
       if (g) clickMong(g.dataset.n); else if (!multi) { sel.clear(); paint(); renderPanel(); setSheet(false); }
     }
-    if (ptrs.size === 0) { start = null; svg.classList.remove("dragging"); }
+    resetGesture();
+    if (ptrs.size === 0) svg.classList.remove("dragging");
   };
   svg.addEventListener("pointerup", endPtr); svg.addEventListener("pointercancel", endPtr);
+  // Chặn trình duyệt iOS tự phóng to cả trang khi chụm ngón trên mặt bằng
+  ["gesturestart", "gesturechange", "gestureend"].forEach((t) => svg.addEventListener(t, (e) => e.preventDefault()));
+  // Chạm 2 lần để phóng to
+  let lastTap = 0;
+  svg.addEventListener("pointerup", (e) => {
+    if (e.pointerType !== "touch" || moved) return;
+    const now = Date.now();
+    if (now - lastTap < 300) { zoomAt(2, e.clientX, e.clientY); lastTap = 0; } else lastTap = now;
+  });
 
   $("multiBtn").onclick = () => {
     multi = !multi; $("multiBtn").classList.toggle("on", multi);
