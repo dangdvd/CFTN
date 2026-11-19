@@ -45,21 +45,83 @@ const GOOGLE_SVG = '<svg viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H
 
 function gate(html) { $("gate").hidden = false; $("app").hidden = true; $("gateBody").innerHTML = html; }
 
-function showLogin(err) {
-  gate(`<button class="gbtn" id="gLogin">${GOOGLE_SVG}Đăng nhập bằng Google</button>` +
-       (err ? `<div class="err">${esc(err)}</div>` : "") +
-       `<p class="muted small" style="margin-top:18px">Chỉ tài khoản đã được quản trị viên cấp quyền mới xem được dữ liệu.</p>`);
+function showLogin(err, info, mode) {
+  mode = mode || "login";
+  const lastEmail = (() => { try { return localStorage.getItem("cftn_email") || ""; } catch (e) { return ""; } })();
+  const titles = { login: "Đăng nhập bằng email", signup: "Tạo mật khẩu lần đầu", reset: "Quên mật khẩu" };
+  const btn = { login: "Đăng nhập", signup: "Tạo tài khoản", reset: "Gửi email đặt lại mật khẩu" };
+  gate(`<button class="gbtn" id="gLogin">${GOOGLE_SVG}Đăng nhập bằng Google</button>
+    <div class="or"><span>hoặc dùng email khác (Outlook, Microsoft 365, …)</span></div>
+    <form id="emForm" class="emform">
+      <b>${titles[mode]}</b>
+      <input type="email" id="emEmail" placeholder="Email" autocomplete="email" required value="${esc(lastEmail)}">
+      ${mode !== "reset" ? `<input type="password" id="emPass" placeholder="${mode === "signup" ? "Đặt mật khẩu (ít nhất 6 ký tự)" : "Mật khẩu"}" autocomplete="${mode === "signup" ? "new-password" : "current-password"}" required minlength="6">` : ""}
+      ${mode === "signup" ? `<input type="password" id="emPass2" placeholder="Nhập lại mật khẩu" autocomplete="new-password" required minlength="6">` : ""}
+      <button class="primary" type="submit" id="emBtn">${btn[mode]}</button>
+      <div class="links">
+        ${mode !== "login" ? `<a href="#" data-mode="login">Đã có mật khẩu? Đăng nhập</a>` : `<a href="#" data-mode="signup">Lần đầu vào? Tạo mật khẩu</a>`}
+        ${mode !== "reset" ? `<a href="#" data-mode="reset">Quên mật khẩu</a>` : ""}
+      </div>
+    </form>` +
+    (err ? `<div class="err">${esc(err)}</div>` : "") + (info ? `<div class="ok">${info}</div>` : "") +
+    `<p class="muted small" style="margin-top:16px">Chỉ email đã được quản trị viên cấp quyền mới xem được dữ liệu.</p>`);
   $("gLogin").onclick = async () => {
-    try { await be.signIn(); }
-    catch (e) { showLogin(loginErr(e)); }
+    try { await be.signIn(); } catch (e) { const m = loginErr(e); if (m) showLogin(m, null, mode); }
+  };
+  document.querySelectorAll("#gateBody [data-mode]").forEach((a) => {
+    a.onclick = (e) => { e.preventDefault(); showLogin(null, null, a.dataset.mode); };
+  });
+  $("emForm").onsubmit = async (e) => {
+    e.preventDefault();
+    const email = $("emEmail").value.trim().toLowerCase();
+    try { localStorage.setItem("cftn_email", email); } catch (x) {}
+    $("emBtn").disabled = true;
+    try {
+      if (mode === "login") await be.signInEmail(email, $("emPass").value);
+      else if (mode === "signup") {
+        if ($("emPass").value !== $("emPass2").value) { showLogin("Hai lần nhập mật khẩu không khớp.", null, "signup"); return; }
+        await be.signUpEmail(email, $("emPass").value);
+      } else {
+        await be.resetPassword(email);
+        showLogin(null, `Nếu <b>${esc(email)}</b> đã có tài khoản, thư đặt lại mật khẩu đã được gửi. Kiểm tra cả mục Spam / Junk.`, "login");
+      }
+    } catch (x) { showLogin(loginErr(x), null, mode); }
   };
 }
 function loginErr(e) {
   const c = e && e.code || "";
-  if (c === "auth/unauthorized-domain") return "Tên miền này chưa được thêm vào Firebase (Authentication → Settings → Authorized domains).";
-  if (c === "auth/popup-closed-by-user" || c === "auth/cancelled-popup-request") return "";
-  if (c === "auth/operation-not-allowed") return "Chưa bật đăng nhập Google trong Firebase Authentication.";
+  const M = {
+    "auth/unauthorized-domain": "Tên miền này chưa được thêm vào Firebase (Authentication → Settings → Authorized domains).",
+    "auth/popup-closed-by-user": "", "auth/cancelled-popup-request": "",
+    "auth/operation-not-allowed": "Phương thức đăng nhập này chưa được bật trong Firebase Authentication.",
+    "auth/invalid-credential": "Sai email hoặc mật khẩu. Nếu lần đầu vào, chọn \"Tạo mật khẩu\".",
+    "auth/wrong-password": "Sai mật khẩu.", "auth/user-not-found": "Email chưa có tài khoản. Chọn \"Tạo mật khẩu\".",
+    "auth/email-already-in-use": "Email này đã có tài khoản. Hãy đăng nhập, hoặc dùng \"Quên mật khẩu\".",
+    "auth/weak-password": "Mật khẩu quá yếu – cần ít nhất 6 ký tự.",
+    "auth/invalid-email": "Email không hợp lệ.",
+    "auth/too-many-requests": "Thử quá nhiều lần. Đợi vài phút rồi thử lại.",
+    "auth/network-request-failed": "Lỗi mạng. Kiểm tra kết nối Internet.",
+  };
+  if (c in M) return M[c];
   return "Đăng nhập lỗi: " + (e && e.message || e);
+}
+
+function showVerify(u, note) {
+  gate(`<p>Đã gửi thư xác nhận tới <b>${esc(u.email)}</b>.</p>
+    <p class="muted small">Mở hộp thư (kiểm tra cả Spam / Junk), bấm vào link xác nhận, rồi quay lại đây bấm nút bên dưới.</p>
+    <button class="primary" id="vDone" style="margin-top:8px">Tôi đã xác nhận email</button>
+    <div class="links" style="justify-content:center;margin-top:12px"><a href="#" id="vResend">Gửi lại thư</a><a href="#" id="vOut">Dùng tài khoản khác</a></div>
+    ${note ? `<div class="${note.ok ? "ok" : "err"}">${note.text}</div>` : ""}`);
+  $("vDone").onclick = async () => {
+    try { const nu = await be.reloadUser(); if (nu.emailVerified) afterLogin(nu); else showVerify(u, { text: "Email chưa được xác nhận. Hãy bấm link trong thư trước." }); }
+    catch (e) { showVerify(u, { text: loginErr(e) }); }
+  };
+  $("vResend").onclick = async (e) => {
+    e.preventDefault();
+    try { await be.resendVerification(); showVerify(u, { ok: true, text: "Đã gửi lại thư xác nhận." }); }
+    catch (x) { showVerify(u, { text: loginErr(x) }); }
+  };
+  $("vOut").onclick = (e) => { e.preventDefault(); be.signOut(); };
 }
 
 async function boot() {
@@ -70,9 +132,15 @@ async function boot() {
     be = await import("./backend.js");
   } catch (e) { gate(`<div class="err">Không tải được Firebase. Kiểm tra kết nối mạng.<br><small>${esc(e.message)}</small></div>`); return; }
 
-  be.onUser(async (u) => {
+  be.onUser((u) => {
     cleanup();
     if (!u) { me = null; role = null; showLogin(); return; }
+    if (!u.emailVerified) { me = null; role = null; showVerify(u); return; }
+    afterLogin(u);
+  });
+}
+
+async function afterLogin(u) {
     me = { uid: u.uid, email: (u.email || "").toLowerCase(), name: u.displayName || u.email };
     gate(`<p class="muted">Đang kiểm tra quyền của <b>${esc(me.email)}</b>…</p>`);
     role = null;
@@ -83,13 +151,12 @@ async function boot() {
     }
     if (!role) {
       gate(`<p>Tài khoản <b>${esc(me.email)}</b> chưa được cấp quyền.</p>
-            <p class="muted small">Gửi email này cho quản trị viên để được thêm vào danh sách.</p>
+            <p class="muted small">Gửi email này cho quản trị viên để được thêm vào danh sách, rồi tải lại trang.</p>
             <button id="gOut" style="margin-top:10px">Đăng nhập tài khoản khác</button>`);
       $("gOut").onclick = () => be.signOut();
       return;
     }
     startApp();
-  });
 }
 
 function cleanup() {

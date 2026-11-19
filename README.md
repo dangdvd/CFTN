@@ -3,7 +3,7 @@
 Web app tô màu tiến độ thi công móng trên mặt bằng (thay cho file Excel *TNL_Mat bang highlight NSP.xlsx*).
 Chạy trên **GitHub Pages** (miễn phí), dữ liệu và đăng nhập dùng **Firebase gói Spark** (miễn phí, không cần thẻ).
 
-- Đăng nhập bằng tài khoản Google
+- Đăng nhập bằng tài khoản Google, hoặc **email + mật khẩu** cho mọi email khác (Outlook, Microsoft 365, email công ty…) có xác nhận qua thư và quên mật khẩu
 - 3 quyền: **Chỉ xem** · **Cập nhật** · **Quản trị**
 - Bấm vào móng để nhập ngày hoàn thành 6 công tác (Đào đất → Lấp đất), màu tự đổi, bảng tổng hợp tự tính
 - Chọn nhiều móng để cập nhật một lúc; xem mặt bằng tại một ngày bất kỳ; lịch sử ai sửa gì
@@ -14,7 +14,7 @@ Chạy trên **GitHub Pages** (miễn phí), dữ liệu và đăng nhập dùng
 ## Cài đặt lần đầu
 
 ### 1. Firebase (đã tạo project `cftn-eb891`)
-1. **Security → Authentication → Sign-in method → Google → Enable → Save**
+1. **Security → Authentication → Sign-in method → Google → Enable → Save**; bấm **Add new provider → Email/Password → Enable** (không bật *Email link*) → **Save**
 2. **Security → Authentication → Settings → Authorized domains → Add domain**: `dangdvd.github.io`
 3. **Databases & Storage → Firestore → Create database** (Standard edition, `asia-southeast1`, production mode)
 4. **Firestore → tab Rules**: xoá hết, dán toàn bộ nội dung file [`firestore.rules`](firestore.rules), sửa email chủ hệ thống trong hàm `isOwner()`, bấm **Publish**
@@ -34,7 +34,9 @@ Sau 1–2 phút trang chạy tại: **https://dangdvd.github.io/CFTN/**
 Đăng nhập bằng email chủ → **⬆ Nhập từ Excel** → chọn `TNL_Mat bang highlight NSP.xlsx`, rồi làm lại với `TNL_Mat bang highlight NK.xlsx`. Mỗi file nạp cả 2 sheet.
 
 ### 5. Thêm người dùng
-**👥 Người dùng** → nhập email Google + chọn quyền → **Thêm**. Người đó mở link và đăng nhập đúng email là dùng được.
+**👥 Người dùng** → nhập email + chọn quyền → **Thêm**.
+- Email Gmail: mở link → **Đăng nhập bằng Google**.
+- Email khác (Outlook, Microsoft 365…): mở link → **Lần đầu vào? Tạo mật khẩu** → mở thư xác nhận (xem cả Spam/Junk) → bấm link → quay lại bấm **Tôi đã xác nhận email**. Lần sau chỉ cần email + mật khẩu.
 
 ## Cấu trúc
 

@@ -7,6 +7,7 @@ const F = await import(`${FIREBASE_SDK}/firebase-firestore.js`);
 
 const app = initializeApp(firebaseConfig);
 const auth = A.getAuth(app);
+auth.languageCode = "vi";
 const db = F.getFirestore(app);
 
 export function onUser(cb) {
@@ -26,6 +27,34 @@ export async function signIn() {
       throw e;
     }
   }
+}
+
+// ---------- Email + mật khẩu ----------
+const actionSettings = () => ({ url: location.origin + location.pathname });
+
+export function signInEmail(email, password) {
+  return A.signInWithEmailAndPassword(auth, email, password);
+}
+
+export async function signUpEmail(email, password) {
+  const cred = await A.createUserWithEmailAndPassword(auth, email, password);
+  await A.sendEmailVerification(cred.user, actionSettings());
+  return cred.user;
+}
+
+export function resendVerification() {
+  return A.sendEmailVerification(auth.currentUser, actionSettings());
+}
+
+// Tải lại trạng thái user (sau khi bấm link xác nhận) và làm mới token
+export async function reloadUser() {
+  await A.reload(auth.currentUser);
+  await auth.currentUser.getIdToken(true);
+  return auth.currentUser;
+}
+
+export function resetPassword(email) {
+  return A.sendPasswordResetEmail(auth, email, actionSettings());
 }
 
 export function signOut() {
