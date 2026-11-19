@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Theo dõi thi công móng – CFTN</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- Màn hình đăng nhập -->
+<div id="gate" class="gate">
+  <div class="gate-card">
+    <div class="gate-logo">▦</div>
+    <h1>Theo dõi thi công trên mặt bằng</h1>
+    <p class="muted">Nhà máy Cà phê Trung Nguyên Legend</p>
+    <div id="gateBody"><p class="muted">Đang tải…</p></div>
+  </div>
+</div>
+
+<!-- Ứng dụng -->
+<div id="app" hidden>
+  <header>
+    <div class="titles">
+      <h1 id="pTitle"></h1>
+      <div class="meta">Công trình: <b id="pCT"></b> · <span id="pDD"></span></div>
+    </div>
+    <div class="who">
+      <span id="status" class="status">Đang tải dữ liệu…</span>
+      <span id="userName" class="uname"></span>
+      <span id="roleBadge" class="badge"></span>
+      <button id="usersBtn" hidden>👥 Người dùng</button>
+      <button id="logoutBtn">Đăng xuất</button>
+    </div>
+  </header>
+
+  <div class="toolbar">
+    <label>Xem tiến độ đến ngày <input type="date" id="asof"></label>
+    <button id="today">Hôm nay</button>
+    <span class="sep"></span>
+    <button id="multiBtn" class="ed" title="Bấm lần lượt nhiều móng rồi cập nhật cùng lúc">Chọn nhiều móng</button>
+    <button id="clearSel">Bỏ chọn</button>
+    <span class="sep"></span>
+    <button id="impBtn" class="adm" hidden title="Đọc ngày ở cột AD:AI của sheet NSP_DaKieng">⬆ Nhập từ Excel</button>
+    <input type="file" id="impFile" accept=".xlsx,.xlsm,.xls" hidden>
+    <button id="expBtn" title="Tải bảng ngày hoàn thành ra file Excel">⬇ Xuất Excel</button>
+    <button id="pngBtn" title="Tải ảnh mặt bằng đã tô màu để gửi báo cáo">🖼 Xuất ảnh</button>
+  </div>
+
+  <main>
+    <div id="mapwrap">
+      <svg id="map" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div class="zoom"><button id="zin" title="Phóng to">+</button><button id="zout" title="Thu nhỏ">−</button><button id="zfit" title="Vừa màn hình">⤢</button></div>
+      <div class="hint">Lăn chuột để phóng to · kéo để di chuyển · bấm vào móng để xem/cập nhật</div>
+    </div>
+    <aside>
+      <div id="panel" class="sec"></div>
+      <div class="sec">
+        <h2>Tổng hợp (<span id="statDate"></span>)</h2>
+        <table class="stats" id="stats"></table>
+      </div>
+      <div class="sec">
+        <h2>Ghi chú màu</h2>
+        <div class="legend" id="legend"></div>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<!-- Hộp thoại quản lý người dùng -->
+<div id="usersDlg" class="modal" hidden>
+  <div class="modal-card">
+    <div class="modal-head"><b>Quản lý người dùng</b><button id="usersClose" class="x">×</button></div>
+    <p class="muted small">Thêm email Google của người cần truy cập và chọn quyền. Người đó chỉ cần mở trang và đăng nhập bằng đúng email này.</p>
+    <form id="addUser" class="adduser">
+      <input type="email" id="newEmail" placeholder="email@gmail.com" required>
+      <input type="text" id="newName" placeholder="Tên / chức vụ (tuỳ chọn)">
+      <select id="newRole">
+        <option value="viewer">Chỉ xem</option>
+        <option value="editor">Cập nhật</option>
+        <option value="admin">Quản trị</option>
+      </select>
+      <button class="primary" type="submit">Thêm</button>
+    </form>
+    <div class="msg" id="usersMsg"></div>
+    <table class="users" id="usersTbl"></table>
+    <p class="muted small"><b>Chỉ xem</b>: xem mặt bằng, xuất Excel/ảnh. <b>Cập nhật</b>: thêm nhập ngày hoàn thành. <b>Quản trị</b>: thêm quản lý người dùng và nhập từ Excel.</p>
+  </div>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

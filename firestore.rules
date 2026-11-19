@@ -1,0 +1,63 @@
+rules_version = '2';
+// =====================================================================
+//  QUY TẮC BẢO MẬT FIRESTORE – dán vào Firebase console → Firestore → Rules
+//  Vai trò lưu ở collection "roles", id tài liệu = email (chữ thường):
+//    viewer = chỉ xem, editor = cập nhật ngày, admin = quản trị
+// =====================================================================
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    function myEmail() {
+      return request.auth.token.email.lower();
+    }
+    // >>> SỬA EMAIL CHỦ HỆ THỐNG Ở ĐÂY (trùng với js/config.js) <<<
+    function isOwner() {
+      return signedIn() && myEmail() in ['owner_email@gmail.com'];
+    }
+    function roleOf() {
+      return get(/databases/$(database)/documents/roles/$(myEmail())).data.role;
+    }
+    function hasRole() {
+      return signedIn() && exists(/databases/$(database)/documents/roles/$(myEmail()));
+    }
+    function isAdmin()  { return isOwner() || (hasRole() && roleOf() == 'admin'); }
+    function canEdit()  { return isAdmin() || (hasRole() && roleOf() == 'editor'); }
+    function canView()  { return canEdit() || (hasRole() && roleOf() == 'viewer'); }
+
+    // Danh sách người dùng & quyền
+    match /roles/{email} {
+      allow get: if isAdmin() || (signedIn() && email == myEmail());
+      allow list: if isAdmin();
+      allow create, update: if isAdmin()
+        && request.resource.data.role in ['viewer', 'editor', 'admin']
+        && request.resource.data.keys().hasOnly(['role', 'name', 'by', 'at']);
+      allow delete: if isAdmin();
+    }
+
+    // Dự án (mặt bằng) và dữ liệu móng
+    match /projects/{pid} {
+      allow read: if canView();
+      allow write: if isAdmin();
+
+      match /mong/{mid} {
+        allow read: if canView();
+        allow delete: if isAdmin();
+        allow create, update: if canEdit()
+          && request.resource.data.keys().hasOnly(['d', 'by', 'byName', 'at', 'h', 'src'])
+          && request.resource.data.d is list
+          && request.resource.data.d.size() == 6
+          && request.resource.data.by == request.auth.uid
+          && request.resource.data.h is list
+          && request.resource.data.h.size() <= 30;
+      }
+    }
+
+    // Mọi thứ khác: cấm
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

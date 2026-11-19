@@ -1,1 +1,58 @@
-# CFTN
+# CFTN – Theo dõi thi công trên mặt bằng
+
+Web app tô màu tiến độ thi công móng trên mặt bằng (thay cho file Excel *TNL_Mat bang highlight NSP.xlsx*).
+Chạy trên **GitHub Pages** (miễn phí), dữ liệu và đăng nhập dùng **Firebase gói Spark** (miễn phí, không cần thẻ).
+
+- Đăng nhập bằng tài khoản Google
+- 3 quyền: **Chỉ xem** · **Cập nhật** · **Quản trị**
+- Bấm vào móng để nhập ngày hoàn thành 6 công tác (Đào đất → Lấp đất), màu tự đổi, bảng tổng hợp tự tính
+- Chọn nhiều móng để cập nhật một lúc; xem mặt bằng tại một ngày bất kỳ; lịch sử ai sửa gì
+- Nhập từ Excel (sheet `NSP_DaKieng`, cột AA = Móng, AD:AI = ngày) · Xuất Excel · Xuất ảnh PNG
+- Cập nhật thời gian thực giữa nhiều người, dùng được trên điện thoại
+
+## Cài đặt lần đầu
+
+### 1. Firebase (đã tạo project `cftn-eb891`)
+1. **Security → Authentication → Sign-in method → Google → Enable → Save**
+2. **Security → Authentication → Settings → Authorized domains → Add domain**: `dangdvd.github.io`
+3. **Databases & Storage → Firestore → Create database** (Standard edition, `asia-southeast1`, production mode)
+4. **Firestore → tab Rules**: xoá hết, dán toàn bộ nội dung file [`firestore.rules`](firestore.rules), sửa email chủ hệ thống trong hàm `isOwner()`, bấm **Publish**
+
+> Không bấm vào Storage / Functions / App Hosting – các mục đó đòi gói trả phí Blaze. App này không cần.
+
+### 2. Email chủ hệ thống
+Sửa **cùng một email** (chữ thường) ở 2 chỗ:
+- `js/config.js` → `OWNER_EMAILS`
+- `firestore.rules` → hàm `isOwner()` (rồi Publish lại Rules trên Firebase)
+
+### 3. GitHub Pages
+Repo → **Settings → Pages → Build and deployment → Source: Deploy from a branch → Branch: `main` / `/ (root)` → Save**.
+Sau 1–2 phút trang chạy tại: **https://dangdvd.github.io/CFTN/**
+
+### 4. Nạp dữ liệu
+Đăng nhập bằng email chủ → **⬆ Nhập từ Excel** → chọn file `TNL_Mat bang highlight NSP.xlsx`.
+
+### 5. Thêm người dùng
+**👥 Người dùng** → nhập email Google + chọn quyền → **Thêm**. Người đó mở link và đăng nhập đúng email là dùng được.
+
+## Cấu trúc
+
+| File | Nội dung |
+|---|---|
+| `index.html`, `css/style.css` | Giao diện |
+| `js/app.js` | Logic: vẽ mặt bằng, tô màu, cập nhật, Excel, quản lý người dùng |
+| `js/backend.js` | Kết nối Firebase (Auth + Firestore) |
+| `js/config.js` | Cấu hình Firebase, email chủ |
+| `data/nsp.json` | Thông tin công trình + toạ độ 124 móng (lấy từ shape trong Excel) |
+| `data/nsp-plan.png` | Ảnh nền mặt bằng |
+| `firestore.rules` | Phân quyền phía server |
+
+Dữ liệu trên Firestore:
+- `roles/{email}` – `{role: viewer|editor|admin, name}`
+- `projects/nsp/mong/m{số móng}` – `{d: [6 ngày yyyy-mm-dd | null], by, byName, at, h: [lịch sử]}`
+
+Màu: Đào đất `#908700` · Bê tông lót `#00B0F0` · Cốt thép `#C00000` · Cốp pha `#FFC000` · Đổ bê tông `#00B050` · Lấp đất `#7030A0`.
+Một móng hiển thị màu của công tác **sau cùng** đã có ngày (giống công thức cột Z trong Excel).
+
+## Hạn mức miễn phí (Firestore Spark)
+50.000 lượt đọc / 20.000 lượt ghi mỗi ngày, 1 GiB dữ liệu – dư cho vài công trình và vài chục người dùng. Vượt hạn mức thì tạm ngưng tới hôm sau, không phát sinh phí.
