@@ -56,10 +56,14 @@ function norm(a) { const o = []; for (let i = 0; i < 6; i++) o.push(a && a[i] ? 
 // Mặt bằng có ô (prj.cells) thì Lấp đất được tính theo ô, đà kiềng chỉ theo dõi 5 công tác đầu.
 const isCell = (n) => /^O\d+$/.test(n);
 const ALL_STEPS = [0, 1, 2, 3, 4, 5];
+// Công tác theo dõi của mặt bằng (prj.steps), mặc định cả 6
+const prjSteps = (prj) => (prj && prj.steps) || ALL_STEPS;
 function stepsFor(prj, n) {
-  if (!prj || !prj.cells) return ALL_STEPS;
+  if (!prj) return ALL_STEPS;
+  const base = prjSteps(prj);
+  if (!prj.cells) return base;
   const cs = prj.cellStep ?? 5;
-  return isCell(n) ? [cs] : ALL_STEPS.filter((i) => i !== cs);
+  return isCell(n) ? [cs] : base.filter((i) => i !== cs);
 }
 function levelIn(prj, map, n, asof) {
   const d = (map[n] && map[n].d) || [], st = stepsFor(prj, n);
@@ -84,7 +88,9 @@ function statsIn(prj, map, asof) {
   const cnt = [0, 0, 0, 0, 0, 0], tot = [0, 0, 0, 0, 0, 0], cs = prj.cells ? (prj.cellStep ?? 5) : -1;
   prj.geo.forEach((g) => {
     const l = levelIn(prj, map, g.n, asof);
-    for (let i = 0; i < 6; i++) if (i !== cs) { tot[i]++; if (l > i) cnt[i]++; }
+    const st = stepsFor(prj, g.n);
+    // l là công tác cao nhất đã xong; các công tác theo dõi đứng trước nó coi như đã xong
+    st.forEach((i) => { tot[i]++; if (l > i) cnt[i]++; });
   });
   if (prj.cells) prj.cells.forEach((c) => { tot[cs]++; if (levelIn(prj, map, c.n, asof)) cnt[cs]++; });
   return { cnt, tot };
@@ -219,7 +225,7 @@ function cleanup() {
 let built = false;
 // Tên mặt bằng dạng "Nhà … – Móng" → [nhà, loại mặt bằng]
 function splitName(n) { const i = n.lastIndexOf(" – "); return i < 0 ? [n, ""] : [n.slice(0, i), n.slice(i + 3)]; }
-const KIND_ORDER = ["Móng", "Đà kiềng"];
+const KIND_ORDER = ["Móng", "Đà kiềng", "Cổ cột", "Cột tầng 1"];
 function plansOf(h) {
   return PROJECTS.filter((x) => splitName(x.name)[0] === h)
     .sort((a, b) => KIND_ORDER.indexOf(splitName(a.name)[1]) - KIND_ORDER.indexOf(splitName(b.name)[1]));
@@ -323,9 +329,8 @@ function buildMap() {
     nodes[n] = { g, r, tt };
   });
   vb.w = P.width; vb.h = P.height; setVB();
-  if ($("legend").childElementCount) return;
   const lg = [`<span><i class="sw" style="background:#fff"></i>Chưa thi công</span>`]
-    .concat(STEPS.map((s) => `<span><i class="sw" style="background:${s.color};opacity:.8"></i>${s.name}</span>`));
+    .concat(prjSteps(P).map((i) => STEPS[i]).map((s) => `<span><i class="sw" style="background:${s.color};opacity:.8"></i>${s.name}</span>`));
   $("legend").innerHTML = lg.join("");
 }
 
@@ -350,6 +355,7 @@ function renderStats() {
   let h = `<tr><td>Tổng số ${U()}</td><td>${P.geo.length}</td></tr>`;
   if (P.cells) h += `<tr><td>Tổng số ô lấp đất</td><td>${P.cells.length}</td></tr>`;
   STEPS.forEach((s, i) => {
+    if (!prjSteps(P).includes(i)) return;
     const p = tot[i] ? Math.round((cnt[i] / tot[i]) * 100) : 0;
     const v = i === cs ? `${cnt[i]}/${tot[i]} ô (${p}%)` : `${cnt[i]} (${p}%)`;
     h += `<tr><td>${s.name}${i === cs ? " <small class=\"muted\">(theo ô)</small>" : ""}<div class="bar"><i style="width:${p}%;background:${s.color}"></i></div></td><td>${v}</td></tr>`;
@@ -486,7 +492,8 @@ function updateHandle() {
   } else if (sel.size > 0) t.textContent = `${sel.size} cấu kiện đã chọn`;
   else {
     const { cnt, tot } = statsIn(P, data, $("asof").value), pc = (i) => (tot[i] ? Math.round(cnt[i] / tot[i] * 100) : 0);
-    t.textContent = `Tổng hợp: ${P.geo.length} ${U()} · Đổ BT ${pc(4)}% · Lấp đất ${pc(5)}%`;
+    const vs = prjSteps(P).slice(-2);
+    t.textContent = `Tổng hợp: ${P.geo.length} ${U()} · ` + vs.map((i) => `${STEPS[i].name} ${pc(i)}%`).join(" · ");
   }
 }
 
@@ -688,14 +695,15 @@ function excelSerial(s) { const [y, m, d] = s.split("-").map(Number); return (Da
 async function exportExcel() {
   try {
     const X = await loadXLSX(), asof = $("asof").value;
-    const aoa = [[UC(), ...STEPS.map((s) => s.name), "Công tác hiện tại", "Cập nhật lần cuối", "Người cập nhật"]];
+    const VS = prjSteps(P);
+    const aoa = [[UC(), ...VS.map((i) => STEPS[i].name), "Công tác hiện tại", "Cập nhật lần cuối", "Người cập nhật"]];
     P.geo.map((g) => g.n).concat((P.cells || []).map((c) => c.n)).sort((a, b) => sortKey(a) - sortKey(b)).forEach((n) => {
       const r = rec(n), l = level(n, asof), allowed = stepsFor(P, n);
-      aoa.push([isCell(n) ? "O" + cellLabel(n) : Number(n), ...norm(r.d).map((d, i) => (d && d <= asof && allowed.includes(i) ? { t: "n", v: excelSerial(d), z: "dd/mm/yyyy" } : "")),
+      aoa.push([isCell(n) ? "O" + cellLabel(n) : Number(n), ...VS.map((i) => norm(r.d)[i]).map((d, k) => (d && d <= asof && allowed.includes(VS[k]) ? { t: "n", v: excelSerial(d), z: "dd/mm/yyyy" } : "")),
         l === 0 ? (isCell(n) ? "Chưa lấp đất" : "Chưa thi công") : STEPS[l - 1].name, r.at ? new Date(r.at).toLocaleString("vi-VN") : "", r.byName || ""]);
     });
     const ws = X.utils.aoa_to_sheet(aoa);
-    ws["!cols"] = [{ wch: 7 }, ...STEPS.map(() => ({ wch: 12 })), { wch: 16 }, { wch: 20 }, { wch: 22 }];
+    ws["!cols"] = [{ wch: 7 }, ...VS.map(() => ({ wch: 12 })), { wch: 16 }, { wch: 20 }, { wch: 22 }];
     const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, P.excelSheet.slice(0, 31));
     X.writeFile(wb, `TienDo_${P.excelSheet}_${asof}.xlsx`);
   } catch (e) { setStatus("Xuất Excel lỗi: " + e.message, "warn"); }
@@ -771,13 +779,14 @@ async function renderPlanCanvas(prj, map, asof) {
     c.fillStyle = "#111"; c.textAlign = "left"; c.font = "bold 40px Arial"; c.fillText("GHI CHÚ", x0, y + 30);
     y += 60;
     const colW2 = pw / 2, rowH = 64;
-    STEPS.forEach((st, i) => {
+    const VS = prjSteps(prj);
+    VS.map((i) => STEPS[i]).forEach((st, i) => {
       const cx = x0 + (i % 2) * colW2, cy = y + Math.floor(i / 2) * rowH;
       c.globalAlpha = 0.8; c.fillStyle = st.color; c.fillRect(cx, cy + 10, 110, 44); c.globalAlpha = 1;
       c.strokeRect(cx, cy + 10, 110, 44);
       c.fillStyle = "#111"; c.font = "34px Arial"; c.fillText(st.name, cx + 130, cy + 44);
     });
-    y += rowH * 3 + 60;
+    y += rowH * Math.ceil(VS.length / 2) + 60;
     // Tổng số
     c.font = "bold 40px Arial"; c.fillText("TỔNG HỢP", x0, y + 30); y += 60;
     c.strokeRect(x0, y, pw, 130); c.beginPath(); c.moveTo(x0, y + 62); c.lineTo(x0 + pw, y + 62); c.stroke();
@@ -786,8 +795,8 @@ async function renderPlanCanvas(prj, map, asof) {
     y += 170;
     // Bảng công tác: tên (tô màu) | số lượng (%) + thanh tiến độ
     const rh = 92, nameW = pw * 0.48;
-    STEPS.forEach((st, i) => {
-      const ry = y + i * rh;
+    VS.forEach((i, k) => {
+      const st = STEPS[i], ry = y + k * rh;
       c.globalAlpha = 0.75; c.fillStyle = st.color; c.fillRect(x0, ry, nameW, rh); c.globalAlpha = 1;
       c.strokeRect(x0, ry, pw, rh); c.beginPath(); c.moveTo(x0 + nameW, ry); c.lineTo(x0 + nameW, ry + rh); c.stroke();
       c.fillStyle = "#111"; c.textAlign = "left"; c.font = "bold 36px Arial"; c.fillText(st.name, x0 + 20, ry + 58);
@@ -797,18 +806,19 @@ async function renderPlanCanvas(prj, map, asof) {
       c.fillStyle = st.color; c.fillRect(bx, ry + 66, tot[i] ? bw * cnt[i] / tot[i] : 0, 12);
     });
   } else {
-    const y0 = head + mapH + 24, colW = (W - 80) / 7;
+    const VS = prjSteps(prj), NC = VS.length + 1;
+    const y0 = head + mapH + 24, colW = (W - 80) / NC;
     c.strokeRect(40, y0, W - 80, 130);
     c.beginPath(); c.moveTo(40, y0 + 60); c.lineTo(W - 40, y0 + 60);
-    for (let i = 1; i < 7; i++) { c.moveTo(40 + colW * i, y0); c.lineTo(40 + colW * i, y0 + 130); }
+    for (let i = 1; i < NC; i++) { c.moveTo(40 + colW * i, y0); c.lineTo(40 + colW * i, y0 + 130); }
     c.stroke();
     c.textAlign = "center"; c.fillStyle = "#111";
-    [prj.cells ? "Tổng số" : `Tổng số ${U(prj)}`, ...STEPS.map((x, i) => (i === cs ? x.name + " (theo ô)" : x.name))].forEach((t, i) => {
-      if (i > 0) { c.globalAlpha = 0.75; c.fillStyle = STEPS[i - 1].color; c.fillRect(40 + colW * i + 1, y0 + 1, colW - 2, 58); c.globalAlpha = 1; }
+    [prj.cells ? "Tổng số" : `Tổng số ${U(prj)}`, ...VS.map((i) => (i === cs ? STEPS[i].name + " (theo ô)" : STEPS[i].name))].forEach((t, i) => {
+      if (i > 0) { c.globalAlpha = 0.75; c.fillStyle = STEPS[VS[i - 1]].color; c.fillRect(40 + colW * i + 1, y0 + 1, colW - 2, 58); c.globalAlpha = 1; }
       c.fillStyle = "#111"; c.font = "bold 32px Arial"; c.fillText(t, 40 + colW * (i + 0.5), y0 + 42);
     });
     c.font = "34px Arial";
-    [totalTxt, ...STEPS.map((x, i) => pct(i))].forEach((t, i) => c.fillText(t, 40 + colW * (i + 0.5), y0 + 108));
+    [totalTxt, ...VS.map((i) => pct(i))].forEach((t, i) => c.fillText(t, 40 + colW * (i + 0.5), y0 + 108));
   }
   c.font = "22px Arial"; c.fillStyle = "#666"; c.textAlign = "right";
   c.fillText(`Xuất ${new Date().toLocaleString("vi-VN")} – ${me ? me.name : ""} – dangdvd.github.io/CFTN`, W - 40, cv.height - 14);

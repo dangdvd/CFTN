@@ -30,6 +30,16 @@
   "excelSheet": "NKho_DaKieng"
  },
  {
+  "id": "nk-cocot",
+  "name": "Nhà kho – Cổ cột",
+  "file": "data/nk-cocot.json"
+ },
+ {
+  "id": "nk-cot1",
+  "name": "Nhà kho – Cột tầng 1",
+  "file": "data/nk-cot1.json"
+ },
+ {
   "id": "nvp-mong",
   "name": "Nhà văn phòng – Móng",
   "file": "data/nvp-mong.json",
