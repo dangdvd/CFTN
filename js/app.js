@@ -345,6 +345,10 @@ function bindUI() {
   $("impFile").onchange = importExcel;
   $("expBtn").onclick = exportExcel;
   $("pngBtn").onclick = exportPng;
+  $("pdfBtn").onclick = openPdfMenu;
+  $("pdfOne").onclick = () => exportPdf(false);
+  $("pdfAll").onclick = () => exportPdf(true);
+  document.addEventListener("click", (e) => { if (!e.target.closest || !e.target.closest(".pdfwrap")) closePdfMenu(); });
 }
 
 function clickMong(n) {
@@ -525,41 +529,99 @@ async function exportExcel() {
   } catch (e) { setStatus("Xuất Excel lỗi: " + e.message, "warn"); }
 }
 
-// ---------- Xuất ảnh ----------
+// ---------- Xuất ảnh / PDF ----------
+const JSPDF_URL = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+function loadScript(url, globalName) {
+  return new Promise((res, rej) => {
+    if (window[globalName]) return res(window[globalName]);
+    const sc = document.createElement("script"); sc.src = url;
+    sc.onload = () => res(window[globalName]); sc.onerror = () => rej(new Error("Không tải được thư viện " + globalName));
+    document.head.appendChild(sc);
+  });
+}
+function levelIn(map, n, asof) { const d = (map[n] && map[n].d) || []; for (let i = 5; i >= 0; i--) if (d[i] && (!asof || d[i] <= asof)) return i + 1; return 0; }
+
+// Vẽ mặt bằng đã tô màu + tiêu đề + bảng tổng hợp lên canvas
+async function renderPlanCanvas(prj, map, asof) {
+  const W = 3600, s = W / prj.width, mapH = Math.round(prj.height * s);
+  const head = 190, foot = 200, cv = document.createElement("canvas");
+  cv.width = W; cv.height = head + mapH + foot;
+  const c = cv.getContext("2d");
+  c.fillStyle = "#fff"; c.fillRect(0, 0, cv.width, cv.height);
+  const img = new Image(); img.src = prj.image; await img.decode();
+  c.drawImage(img, 0, head, W, mapH);
+  const cnt = [0, 0, 0, 0, 0, 0];
+  prj.geo.forEach(({ n, p, l: lb, a, f }) => {
+    const l = levelIn(map, n, asof); for (let i = 0; i < l; i++) cnt[i]++;
+    c.beginPath(); c.moveTo(p[0] * s, head + p[1] * s);
+    for (let i = 2; i < p.length; i += 2) c.lineTo(p[i] * s, head + p[i + 1] * s);
+    c.closePath();
+    c.globalAlpha = l === 0 ? 0.55 : 0.72; c.fillStyle = colorOf(l); c.fill();
+    c.globalAlpha = 0.6; c.strokeStyle = "#334155"; c.lineWidth = 1.5; c.stroke();
+    c.globalAlpha = 1; c.fillStyle = "#0f172a";
+    c.font = `bold ${Math.max(14, f * s)}px Arial`; c.textAlign = "center"; c.textBaseline = "middle";
+    c.save(); c.translate(lb[0] * s, head + lb[1] * s); if (a) c.rotate((a * Math.PI) / 180); c.fillText(n, 0, 0); c.restore();
+  });
+  // Tiêu đề
+  c.fillStyle = "#111"; c.textAlign = "center"; c.textBaseline = "alphabetic";
+  c.font = "bold 58px Arial"; c.fillText(`${prj.title} – ${prj.kind.toUpperCase()}`, W / 2, 72);
+  c.font = "34px Arial"; c.textAlign = "left";
+  c.fillText(`Công trình: ${prj.congTrinh}`, 40, 130); c.fillText(`Địa điểm: ${prj.diaDiem}`, 40, 172);
+  c.textAlign = "right"; c.font = "bold 38px Arial"; c.fillText(`Ngày: ${fmt(asof)}`, W - 40, 130);
+  // Bảng tổng hợp + chú thích màu
+  const total = prj.geo.length, y0 = head + mapH + 24, colW = (W - 80) / 7;
+  c.strokeStyle = "#333"; c.lineWidth = 2; c.strokeRect(40, y0, W - 80, 130);
+  c.beginPath(); c.moveTo(40, y0 + 60); c.lineTo(W - 40, y0 + 60);
+  for (let i = 1; i < 7; i++) { c.moveTo(40 + colW * i, y0); c.lineTo(40 + colW * i, y0 + 130); }
+  c.stroke();
+  c.textAlign = "center"; c.fillStyle = "#111";
+  ["Tổng số móng", ...STEPS.map((x) => x.name)].forEach((t, i) => {
+    if (i > 0) { c.globalAlpha = 0.75; c.fillStyle = STEPS[i - 1].color; c.fillRect(40 + colW * i + 1, y0 + 1, colW - 2, 58); c.globalAlpha = 1; }
+    c.fillStyle = "#111"; c.font = "bold 32px Arial"; c.fillText(t, 40 + colW * (i + 0.5), y0 + 42);
+  });
+  c.font = "34px Arial";
+  [String(total), ...cnt.map((k) => `${k} (${Math.round((k / total) * 100)}%)`)].forEach((t, i) => c.fillText(t, 40 + colW * (i + 0.5), y0 + 108));
+  c.font = "22px Arial"; c.fillStyle = "#666"; c.textAlign = "right";
+  c.fillText(`Xuất ${new Date().toLocaleString("vi-VN")} – ${me ? me.name : ""} – dangdvd.github.io/CFTN`, W - 40, cv.height - 18);
+  return cv;
+}
+
 async function exportPng() {
   try {
-    const asof = $("asof").value, W = 3600, s = W / P.width, mapH = Math.round(P.height * s);
-    const head = 170, foot = 150, cv = document.createElement("canvas");
-    cv.width = W; cv.height = head + mapH + foot;
-    const c = cv.getContext("2d");
-    c.fillStyle = "#fff"; c.fillRect(0, 0, cv.width, cv.height);
-    const img = new Image(); img.src = P.image; await img.decode();
-    c.drawImage(img, 0, head, W, mapH);
-    P.geo.forEach(({ n, p, l: lb, a, f }) => {
-      const l = level(n, asof);
-      c.beginPath(); c.moveTo(p[0] * s, head + p[1] * s);
-      for (let i = 2; i < p.length; i += 2) c.lineTo(p[i] * s, head + p[i + 1] * s);
-      c.closePath();
-      c.globalAlpha = l === 0 ? 0.55 : 0.72; c.fillStyle = colorOf(l); c.fill();
-      c.globalAlpha = 0.6; c.strokeStyle = "#334155"; c.lineWidth = 1.5; c.stroke();
-      c.globalAlpha = 1; c.fillStyle = "#0f172a";
-      c.font = `bold ${f * s}px Arial`; c.textAlign = "center"; c.textBaseline = "middle";
-      c.save(); c.translate(lb[0] * s, head + lb[1] * s); if (a) c.rotate((a * Math.PI) / 180); c.fillText(n, 0, 0); c.restore();
-    });
-    c.fillStyle = "#111"; c.textAlign = "center"; c.textBaseline = "alphabetic";
-    c.font = "bold 56px Arial"; c.fillText(P.title + " – " + P.kind.toUpperCase(), W / 2, 70);
-    c.font = "34px Arial"; c.textAlign = "left";
-    c.fillText(`Công trình: ${P.congTrinh}`, 40, 125); c.fillText(`Địa điểm: ${P.diaDiem}`, 40, 160);
-    c.textAlign = "right"; c.fillText(`Ngày: ${fmt(asof)}`, W - 40, 125);
-    const cnt = stats(asof), total = P.geo.length, y0 = head + mapH + 30, colW = (W - 80) / 7;
-    c.textAlign = "center"; c.font = "bold 32px Arial";
-    ["Tổng số móng", ...STEPS.map((x) => x.name)].forEach((t, i) => c.fillText(t, 40 + colW * (i + 0.5), y0 + 30));
-    c.font = "32px Arial";
-    [String(total), ...cnt.map((k) => `${k} (${Math.round((k / total) * 100)}%)`)].forEach((t, i) => c.fillText(t, 40 + colW * (i + 0.5), y0 + 85));
-    STEPS.forEach((st, i) => { c.fillStyle = st.color; c.fillRect(40 + colW * (i + 1) + 20, y0 + 100, colW - 40, 10); });
+    const asof = $("asof").value, cv = await renderPlanCanvas(P, data, asof);
     const a = document.createElement("a"); a.download = `MatBang_${P.excelSheet}_${asof}.png`; a.href = cv.toDataURL("image/png"); a.click();
   } catch (e) { setStatus("Xuất ảnh lỗi: " + e.message, "warn"); }
 }
+
+async function exportPdf(all) {
+  closePdfMenu();
+  const asof = $("asof").value;
+  try {
+    setStatus("Đang tạo PDF…");
+    const lib = await loadScript(JSPDF_URL, "jspdf");
+    const list = all ? PROJECTS : PROJECTS.filter((x) => x.id === P.id);
+    let doc = null;
+    for (const meta of list) {
+      setStatus(`Đang tạo PDF – ${meta.name}…`);
+      const prj = await loadProject(meta.id);
+      const map = prj.id === P.id ? data : await be.getMongAll(prj.id);
+      const cv = await renderPlanCanvas(prj, map, asof);
+      const land = cv.width >= cv.height, pw = land ? 420 : 297, ph = land ? 297 : 420, m = 8;
+      if (!doc) doc = new lib.jsPDF({ orientation: land ? "landscape" : "portrait", unit: "mm", format: "a3", compress: true });
+      else doc.addPage("a3", land ? "landscape" : "portrait");
+      const k = Math.min((pw - 2 * m) / cv.width, (ph - 2 * m) / cv.height), w = cv.width * k, h = cv.height * k;
+      doc.addImage(cv.toDataURL("image/jpeg", 0.92), "JPEG", (pw - w) / 2, (ph - h) / 2, w, h, undefined, "FAST");
+    }
+    doc.setProperties({ title: all ? "Tiến độ thi công móng – tất cả mặt bằng" : `${P.name} – ${fmt(asof)}`, creator: "CFTN" });
+    doc.save(all ? `TienDo_TatCa_${asof}.pdf` : `MatBang_${P.excelSheet}_${asof}.pdf`);
+    setStatus(online ? "Trực tuyến" : "Đã xuất PDF", "ok");
+  } catch (e) { setStatus("Xuất PDF lỗi: " + (e.code === "permission-denied" ? "không có quyền đọc" : e.message), "warn"); }
+}
+function openPdfMenu(e) {
+  e.stopPropagation();
+  const m = $("pdfMenu"); m.hidden = !m.hidden;
+}
+function closePdfMenu() { $("pdfMenu").hidden = true; }
 
 // ---------- Quản lý người dùng ----------
 function openUsers() {
