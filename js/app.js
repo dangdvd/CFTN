@@ -177,13 +177,13 @@ function currentHashId() { const h = location.hash.replace("#", ""); return PROJ
 async function switchProject(id) {
   if (unsubMong) { unsubMong(); unsubMong = null; }
   data = {}; sel.clear(); online = false; lastMsg = null;
-  multi = false; $("multiBtn").classList.remove("on");
+  multi = false; $("multiBtn").classList.remove("on"); setSheet(false);
   try { P = await loadProject(id); } catch (e) { setStatus("Không tải được mặt bằng", "warn"); return; }
   if (location.hash.replace("#", "") !== P.id) history.replaceState(null, "", "#" + P.id);
   $("projSel").value = P.id;
   $("pTitle").textContent = P.title; $("pCT").textContent = P.congTrinh; $("pDD").textContent = P.diaDiem;
   document.title = P.name + " – " + P.title;
-  buildMap(); requestAnimationFrame(fit);
+  buildMap(); requestAnimationFrame(() => fit(isMobile()));
   paint(); renderPanel();
   setStatus("Đang tải dữ liệu…");
   const timer = setTimeout(() => setStatus("Chưa kết nối được dữ liệu – đang thử lại…", "warn"), 10000);
@@ -272,12 +272,14 @@ function renderStats() {
     h += `<tr><td>${s.name}<div class="bar"><i style="width:${p}%;background:${s.color}"></i></div></td><td>${cnt[i]} (${p}%)</td></tr>`;
   });
   $("stats").innerHTML = h;
+  updateHandle();
 }
 
 // ---------- Phóng to / di chuyển ----------
-function fit() {
+function fit(cover) {
   const r = $("map").getBoundingClientRect(); if (!r.width || !r.height) return;
   const ar = r.width / r.height, iar = P.width / P.height;
+  if (cover === true && ar < iar) { vb.h = P.height; vb.w = P.height * ar; vb.x = (P.width - vb.w) / 2; vb.y = 0; setVB(); return; }
   if (ar > iar) { vb.h = P.height; vb.w = P.height * ar; vb.x = -(vb.w - P.width) / 2; vb.y = 0; }
   else { vb.w = P.width; vb.h = P.width / ar; vb.y = -(vb.h - P.height) / 2; vb.x = 0; }
   setVB();
@@ -296,7 +298,7 @@ function bindUI() {
   svg.addEventListener("wheel", (e) => { e.preventDefault(); zoomAt(e.deltaY < 0 ? 1.2 : 1 / 1.2, e.clientX, e.clientY); }, { passive: false });
   $("zin").onclick = () => centerZoom(1.4);
   $("zout").onclick = () => centerZoom(1 / 1.4);
-  $("zfit").onclick = fit;
+  $("zfit").onclick = () => fit(false);
 
   const ptrs = new Map(); let moved = false, start = null, pinch = null;
   svg.addEventListener("pointerdown", (e) => {
@@ -320,7 +322,7 @@ function bindUI() {
     const single = ptrs.size === 1; ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null;
     if (single && !moved && start && e.type === "pointerup") {
       const el = document.elementFromPoint(e.clientX, e.clientY), g = el && el.closest && el.closest(".mong");
-      if (g) clickMong(g.dataset.n); else if (!multi) { sel.clear(); paint(); renderPanel(); }
+      if (g) clickMong(g.dataset.n); else if (!multi) { sel.clear(); paint(); renderPanel(); setSheet(false); }
     }
     if (ptrs.size === 0) { start = null; svg.classList.remove("dragging"); }
   };
@@ -346,19 +348,36 @@ function bindUI() {
   $("expBtn").onclick = exportExcel;
   $("pngBtn").onclick = exportPng;
   $("pdfBtn").onclick = openPdfMenu;
+  document.querySelector(".toolbar").addEventListener("scroll", closePdfMenu, { passive: true });
+  $("handle").onclick = () => setSheet(!$("aside").classList.contains("open"));
   $("pdfOne").onclick = () => exportPdf(false);
   $("pdfAll").onclick = () => exportPdf(true);
   document.addEventListener("click", (e) => { if (!e.target.closest || !e.target.closest(".pdfwrap")) closePdfMenu(); });
 }
 
+const isMobile = () => window.matchMedia("(max-width:820px)").matches;
+function setSheet(open) { $("aside").classList.toggle("open", !!open); }
+function updateHandle() {
+  const t = $("handleText"); if (!t || !P) return;
+  if (sel.size === 1 && !multi) {
+    const n = [...sel][0], l = level(n, $("asof").value);
+    t.textContent = `Móng ${n} – ${l === 0 ? "Chưa thi công" : STEPS[l - 1].name}`;
+  } else if (sel.size > 0) t.textContent = `${sel.size} móng đã chọn`;
+  else {
+    const cnt = stats($("asof").value), tot = P.geo.length;
+    t.textContent = `Tổng hợp: ${tot} móng · Đổ BT ${Math.round(cnt[4] / tot * 100)}% · Lấp đất ${Math.round(cnt[5] / tot * 100)}%`;
+  }
+}
+
 function clickMong(n) {
   if (multi) { sel.has(n) ? sel.delete(n) : sel.add(n); } else { sel.clear(); sel.add(n); }
   paint(); renderPanel();
+  if (isMobile()) { setSheet(true); $("aside").scrollTop = 0; }
 }
 
 // ---------- Bảng bên phải ----------
 function renderPanel() {
-  _renderPanel();
+  _renderPanel(); updateHandle();
   if (lastMsg && Date.now() - lastMsg.t < 5000) { const m = $("msg"); if (m) { m.textContent = lastMsg.text; m.style.color = lastMsg.ok ? "#05603a" : "#b42318"; } }
 }
 function msg(text, ok) { lastMsg = { text, ok, t: Date.now() }; const m = $("msg"); if (m) { m.textContent = text; m.style.color = ok ? "#05603a" : "#b42318"; } }
@@ -620,6 +639,13 @@ async function exportPdf(all) {
 function openPdfMenu(e) {
   e.stopPropagation();
   const m = $("pdfMenu"); m.hidden = !m.hidden;
+  if (!m.hidden) {
+    const r = $("pdfBtn").getBoundingClientRect();
+    m.classList.add("fixed");
+    m.style.top = r.bottom + 4 + "px";
+    m.style.left = Math.max(8, Math.min(r.right - m.offsetWidth, window.innerWidth - m.offsetWidth - 8)) + "px";
+    m.style.right = "auto";
+  }
 }
 function closePdfMenu() { $("pdfMenu").hidden = true; }
 

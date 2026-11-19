@@ -29,15 +29,15 @@
       <span id="status" class="status">Đang tải dữ liệu…</span>
       <span id="userName" class="uname"></span>
       <span id="roleBadge" class="badge"></span>
-      <button id="usersBtn" hidden>👥 Người dùng</button>
+      <button id="usersBtn" hidden title="Quản lý người dùng">👥<span class="t"> Người dùng</span></button>
       <button id="logoutBtn">Đăng xuất</button>
     </div>
   </header>
 
   <div class="toolbar">
-    <label>Mặt bằng <select id="projSel" class="projsel"></select></label>
+    <label><span class="lbl">Mặt bằng</span> <select id="projSel" class="projsel"></select></label>
     <span class="sep"></span>
-    <label>Xem tiến độ đến ngày <input type="date" id="asof"></label>
+    <label><span class="lbl">Xem tiến độ đến ngày</span> <input type="date" id="asof" title="Xem tiến độ đến ngày"></label>
     <button id="today">Hôm nay</button>
     <span class="sep"></span>
     <button id="multiBtn" class="ed" title="Bấm lần lượt nhiều móng rồi cập nhật cùng lúc">Chọn nhiều móng</button>
@@ -62,7 +62,8 @@
       <div class="zoom"><button id="zin" title="Phóng to">+</button><button id="zout" title="Thu nhỏ">−</button><button id="zfit" title="Vừa màn hình">⤢</button></div>
       <div class="hint">Lăn chuột để phóng to · kéo để di chuyển · bấm vào móng để xem/cập nhật</div>
     </div>
-    <aside>
+    <aside id="aside">
+      <div id="handle" class="handle"><i class="grip"></i><span id="handleText">Chi tiết & tổng hợp</span><span id="handleArrow">▲</span></div>
       <div id="panel" class="sec"></div>
       <div class="sec">
         <h2>Tổng hợp (<span id="statDate"></span>)</h2>
