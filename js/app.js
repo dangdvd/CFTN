@@ -514,7 +514,10 @@ async function saveMany(list, makeNew, via) {
     else if (entries.length > 1) await be.saveMongMany(P.id, entries);
     entries.forEach(([n, d]) => (data[n] = d));
   } catch (e) { fail = e; }
-  saving = false; paint(); renderPanel();
+  saving = false;
+  // Lưu xong thì bỏ chọn, tránh cấu kiện vừa tô bị cập nhật theo ở lần chọn sau
+  if (!fail && entries.length && !via) { sel.clear(); if (isMobile()) setSheet(false); }
+  paint(); renderPanel();
   if (fail) msg("Không lưu được: " + (fail.code === "permission-denied" ? "không có quyền ghi." : fail.code || fail.message));
   else msg(entries.length ? `Đã lưu ${entries.length} ${U()}.` : "Không có gì thay đổi.", true);
   return { done: fail ? 0 : entries.length, fail };
@@ -598,13 +601,24 @@ function levelIn(map, n, asof) { const d = (map[n] && map[n].d) || []; for (let 
 
 // Vẽ mặt bằng đã tô màu + tiêu đề + bảng tổng hợp lên canvas
 async function renderPlanCanvas(prj, map, asof) {
-  const W = 3600, s = W / prj.width, mapH = Math.round(prj.height * s);
-  const head = 190, foot = 200, cv = document.createElement("canvas");
+  // Mặt bằng dẹt (nhà sấy phun): bảng tổng hợp ở dưới.
+  // Mặt bằng gần vuông (nhà kho): chú thích + tổng hợp ở bên phải để vừa A3 ngang.
+  const A3 = 420 / 297, head = 190, iar = prj.width / prj.height;
+  const side = iar < 1.6;
+  let W, mapW, mapH, panelX, foot;
+  if (side) {
+    mapH = 2500; mapW = Math.round(mapH * iar); foot = 50;
+    W = Math.max(mapW + 1000, Math.round((head + mapH + foot) * A3));
+    panelX = mapW + 60;
+  } else {
+    W = 3600; mapW = W; mapH = Math.round(W / iar); foot = 200; panelX = 0;
+  }
+  const s = mapW / prj.width, cv = document.createElement("canvas");
   cv.width = W; cv.height = head + mapH + foot;
   const c = cv.getContext("2d");
   c.fillStyle = "#fff"; c.fillRect(0, 0, cv.width, cv.height);
   const img = new Image(); img.src = prj.image; await img.decode();
-  c.drawImage(img, 0, head, W, mapH);
+  c.drawImage(img, 0, head, mapW, mapH);
   const cnt = [0, 0, 0, 0, 0, 0];
   prj.geo.forEach(({ n, p, l: lb, a, f }) => {
     const l = levelIn(map, n, asof); for (let i = 0; i < l; i++) cnt[i]++;
@@ -623,21 +637,57 @@ async function renderPlanCanvas(prj, map, asof) {
   c.font = "34px Arial"; c.textAlign = "left";
   c.fillText(`Công trình: ${prj.congTrinh}`, 40, 130); c.fillText(`Địa điểm: ${prj.diaDiem}`, 40, 172);
   c.textAlign = "right"; c.font = "bold 38px Arial"; c.fillText(`Ngày: ${fmt(asof)}`, W - 40, 130);
-  // Bảng tổng hợp + chú thích màu
-  const total = prj.geo.length, y0 = head + mapH + 24, colW = (W - 80) / 7;
-  c.strokeStyle = "#333"; c.lineWidth = 2; c.strokeRect(40, y0, W - 80, 130);
-  c.beginPath(); c.moveTo(40, y0 + 60); c.lineTo(W - 40, y0 + 60);
-  for (let i = 1; i < 7; i++) { c.moveTo(40 + colW * i, y0); c.lineTo(40 + colW * i, y0 + 130); }
-  c.stroke();
-  c.textAlign = "center"; c.fillStyle = "#111";
-  [`Tổng số ${U(prj)}`, ...STEPS.map((x) => x.name)].forEach((t, i) => {
-    if (i > 0) { c.globalAlpha = 0.75; c.fillStyle = STEPS[i - 1].color; c.fillRect(40 + colW * i + 1, y0 + 1, colW - 2, 58); c.globalAlpha = 1; }
-    c.fillStyle = "#111"; c.font = "bold 32px Arial"; c.fillText(t, 40 + colW * (i + 0.5), y0 + 42);
-  });
-  c.font = "34px Arial";
-  [String(total), ...cnt.map((k) => `${k} (${Math.round((k / total) * 100)}%)`)].forEach((t, i) => c.fillText(t, 40 + colW * (i + 0.5), y0 + 108));
+  const total = prj.geo.length, pct = (k) => `${k} (${Math.round((k / total) * 100)}%)`;
+  c.strokeStyle = "#333"; c.lineWidth = 2;
+
+  if (side) {
+    const x0 = panelX, pw = W - 40 - x0;
+    let y = head + 40;
+    // Ghi chú màu (2 cột)
+    c.fillStyle = "#111"; c.textAlign = "left"; c.font = "bold 40px Arial"; c.fillText("GHI CHÚ", x0, y + 30);
+    y += 60;
+    const colW2 = pw / 2, rowH = 64;
+    STEPS.forEach((st, i) => {
+      const cx = x0 + (i % 2) * colW2, cy = y + Math.floor(i / 2) * rowH;
+      c.globalAlpha = 0.8; c.fillStyle = st.color; c.fillRect(cx, cy + 10, 110, 44); c.globalAlpha = 1;
+      c.strokeRect(cx, cy + 10, 110, 44);
+      c.fillStyle = "#111"; c.font = "34px Arial"; c.fillText(st.name, cx + 130, cy + 44);
+    });
+    y += rowH * 3 + 60;
+    // Tổng số
+    c.font = "bold 40px Arial"; c.fillText("TỔNG HỢP", x0, y + 30); y += 60;
+    c.strokeRect(x0, y, pw, 130); c.beginPath(); c.moveTo(x0, y + 62); c.lineTo(x0 + pw, y + 62); c.stroke();
+    c.textAlign = "center"; c.font = "bold 36px Arial"; c.fillText(`Tổng số ${U(prj)}`, x0 + pw / 2, y + 45);
+    c.font = "bold 44px Arial"; c.fillText(String(total), x0 + pw / 2, y + 112);
+    y += 170;
+    // Bảng công tác: tên (tô màu) | số lượng (%) + thanh tiến độ
+    const rh = 92, nameW = pw * 0.48;
+    STEPS.forEach((st, i) => {
+      const ry = y + i * rh;
+      c.globalAlpha = 0.75; c.fillStyle = st.color; c.fillRect(x0, ry, nameW, rh); c.globalAlpha = 1;
+      c.strokeRect(x0, ry, pw, rh); c.beginPath(); c.moveTo(x0 + nameW, ry); c.lineTo(x0 + nameW, ry + rh); c.stroke();
+      c.fillStyle = "#111"; c.textAlign = "left"; c.font = "bold 36px Arial"; c.fillText(st.name, x0 + 20, ry + 58);
+      c.textAlign = "right"; c.font = "bold 38px Arial"; c.fillText(pct(cnt[i]), x0 + pw - 20, ry + 50);
+      const bx = x0 + nameW + 20, bw = pw - nameW - 40;
+      c.fillStyle = "#e5e7eb"; c.fillRect(bx, ry + 66, bw, 12);
+      c.fillStyle = st.color; c.fillRect(bx, ry + 66, bw * cnt[i] / total, 12);
+    });
+  } else {
+    const y0 = head + mapH + 24, colW = (W - 80) / 7;
+    c.strokeRect(40, y0, W - 80, 130);
+    c.beginPath(); c.moveTo(40, y0 + 60); c.lineTo(W - 40, y0 + 60);
+    for (let i = 1; i < 7; i++) { c.moveTo(40 + colW * i, y0); c.lineTo(40 + colW * i, y0 + 130); }
+    c.stroke();
+    c.textAlign = "center"; c.fillStyle = "#111";
+    [`Tổng số ${U(prj)}`, ...STEPS.map((x) => x.name)].forEach((t, i) => {
+      if (i > 0) { c.globalAlpha = 0.75; c.fillStyle = STEPS[i - 1].color; c.fillRect(40 + colW * i + 1, y0 + 1, colW - 2, 58); c.globalAlpha = 1; }
+      c.fillStyle = "#111"; c.font = "bold 32px Arial"; c.fillText(t, 40 + colW * (i + 0.5), y0 + 42);
+    });
+    c.font = "34px Arial";
+    [String(total), ...cnt.map(pct)].forEach((t, i) => c.fillText(t, 40 + colW * (i + 0.5), y0 + 108));
+  }
   c.font = "22px Arial"; c.fillStyle = "#666"; c.textAlign = "right";
-  c.fillText(`Xuất ${new Date().toLocaleString("vi-VN")} – ${me ? me.name : ""} – dangdvd.github.io/CFTN`, W - 40, cv.height - 18);
+  c.fillText(`Xuất ${new Date().toLocaleString("vi-VN")} – ${me ? me.name : ""} – dangdvd.github.io/CFTN`, W - 40, cv.height - 14);
   return cv;
 }
 
