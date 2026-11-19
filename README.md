@@ -4,7 +4,7 @@ Web app tô màu tiến độ thi công móng trên mặt bằng (thay cho file 
 Chạy trên **GitHub Pages** (miễn phí), dữ liệu và đăng nhập dùng **Firebase gói Spark** (miễn phí, không cần thẻ).
 
 - Đăng nhập bằng tài khoản Google, hoặc **email + mật khẩu** cho mọi email khác (Outlook, Microsoft 365, email công ty…) có xác nhận qua thư và quên mật khẩu
-- 3 quyền: **Chỉ xem** · **Cập nhật** · **Quản trị**
+- 3 quyền: **Chỉ xem** · **Cập nhật** · **Quản trị**, đặt chung cho mọi nhà hoặc riêng từng nhà (quyền riêng ghi đè quyền mặc định)
 - Bấm vào móng để nhập ngày hoàn thành 6 công tác (Đào đất → Lấp đất), màu tự đổi, bảng tổng hợp tự tính
 - Chọn nhiều móng để cập nhật một lúc; xem mặt bằng tại một ngày bất kỳ; lịch sử ai sửa gì
 - 10 mặt bằng: Nhà sấy phun, Nhà kho, Nhà văn phòng (Móng + Đà kiềng); Nhà phụ trợ 1, Nhà phụ trợ 2, Nhà xe, Nhà sấy lạnh (Móng: `#npt1-mong`, `#npt2-mong`, `#nx-mong`, `#nsl-mong`) – chọn ở ô *Mặt bằng*, link riêng từng mặt bằng: `#nsp-mong`, `#nsp`, `#nk-mong`, `#nk-dakieng`
@@ -54,7 +54,7 @@ Sau 1–2 phút trang chạy tại: **https://dangdvd.github.io/CFTN/**
 | `firestore.rules` | Phân quyền phía server |
 
 Dữ liệu trên Firestore:
-- `roles/{email}` – `{role: viewer|editor|admin, name}`
+- `roles/{email}` – `{role: none|viewer|editor|admin, houses: {nsp|nk|nvp|npt1|npt2|nx|nsl: quyền}, name}`
 - `projects/{id}/mong/m{số móng}` (id: `nsp`, `nsp-mong`, `nk-mong`, `nk-dakieng`) – `{d: [6 ngày yyyy-mm-dd | null], by, byName, at, h: [lịch sử]}`
 
 Màu: Đào đất `#908700` · Bê tông lót `#00B0F0` · Cốt thép `#C00000` · Cốp pha `#FFC000` · Đổ bê tông `#00B050` · Lấp đất `#7030A0`.

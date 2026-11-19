@@ -86,16 +86,17 @@
     <form id="addUser" class="adduser">
       <input type="email" id="newEmail" placeholder="email@gmail.com" required>
       <input type="text" id="newName" placeholder="Tên / chức vụ (tuỳ chọn)">
-      <select id="newRole">
-        <option value="viewer">Chỉ xem</option>
-        <option value="editor">Cập nhật</option>
-        <option value="admin">Quản trị</option>
+      <select id="newRole" title="Quyền mặc định cho mọi nhà">
+        <option value="none">Chưa cấp (chọn theo nhà)</option>
+        <option value="viewer" selected>Chỉ xem – tất cả nhà</option>
+        <option value="editor">Cập nhật – tất cả nhà</option>
+        <option value="admin">Quản trị – tất cả nhà</option>
       </select>
       <button class="primary" type="submit">Thêm</button>
     </form>
     <div class="msg" id="usersMsg"></div>
     <table class="users" id="usersTbl"></table>
-    <p class="muted small"><b>Chỉ xem</b>: xem mặt bằng, xuất Excel/ảnh. <b>Cập nhật</b>: thêm nhập ngày hoàn thành. <b>Quản trị</b>: thêm quản lý người dùng và nhập từ Excel.</p>
+    <p class="muted small"><b>Chỉ xem</b>: xem mặt bằng, xuất Excel/ảnh/PDF. <b>Cập nhật</b>: thêm nhập ngày hoàn thành. <b>Quản trị</b> (theo nhà): thêm nhập từ Excel cho nhà đó. Người có quyền mặc định <b>Quản trị</b> (tất cả nhà) được quản lý người dùng. Bấm dòng "Theo từng nhà" để đặt quyền riêng cho từng nhà – quyền riêng ghi đè quyền mặc định.</p>
   </div>
 </div>
 

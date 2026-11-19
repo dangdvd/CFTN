@@ -2,7 +2,9 @@ rules_version = '2';
 // =====================================================================
 //  QUY TẮC BẢO MẬT FIRESTORE – dán vào Firebase console → Firestore → Rules
 //  Vai trò lưu ở collection "roles", id tài liệu = email (chữ thường):
-//    viewer = chỉ xem, editor = cập nhật ngày, admin = quản trị
+//    role   = quyền mặc định cho mọi nhà: none | viewer | editor | admin
+//    houses = quyền riêng theo nhà, ví dụ {nk: 'editor', nvp: 'viewer'}
+//  Người có role = 'admin' được quản lý người dùng.
 // =====================================================================
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -17,35 +19,43 @@ service cloud.firestore {
     function isOwner() {
       return signedIn() && myEmail() in ['dangvandangdvd@gmail.com'];
     }
-    function roleOf() {
-      return get(/databases/$(database)/documents/roles/$(myEmail())).data.role;
+    function rdoc() {
+      return get(/databases/$(database)/documents/roles/$(myEmail())).data;
     }
     function hasRole() {
       return signedIn() && exists(/databases/$(database)/documents/roles/$(myEmail()));
     }
-    function isAdmin()  { return isOwner() || (hasRole() && roleOf() == 'admin'); }
-    function canEdit()  { return isAdmin() || (hasRole() && roleOf() == 'editor'); }
-    function canView()  { return canEdit() || (hasRole() && roleOf() == 'viewer'); }
+    // Quyền trên 1 nhà = quyền riêng của nhà đó (nếu có), ngược lại = quyền mặc định
+    function roleIn(h) {
+      return rdoc().get('houses', {}).get(h, rdoc().get('role', 'none'));
+    }
+    // Mã nhà = phần đầu id mặt bằng: nsp, nk, nvp, npt1, npt2, nx, nsl
+    function houseOf(pid) { return pid.split('-')[0]; }
+    function isAdmin()  { return isOwner() || (hasRole() && rdoc().get('role', 'none') == 'admin'); }
+    function adminIn(pid) { return isOwner() || (hasRole() && roleIn(houseOf(pid)) == 'admin'); }
+    function editIn(pid)  { return isOwner() || (hasRole() && roleIn(houseOf(pid)) in ['editor', 'admin']); }
+    function viewIn(pid)  { return isOwner() || (hasRole() && roleIn(houseOf(pid)) in ['viewer', 'editor', 'admin']); }
 
     // Danh sách người dùng & quyền
     match /roles/{email} {
       allow get: if isAdmin() || (signedIn() && email == myEmail());
       allow list: if isAdmin();
       allow create, update: if isAdmin()
-        && request.resource.data.role in ['viewer', 'editor', 'admin']
-        && request.resource.data.keys().hasOnly(['role', 'name', 'by', 'at']);
+        && request.resource.data.role in ['none', 'viewer', 'editor', 'admin']
+        && request.resource.data.keys().hasOnly(['role', 'name', 'houses', 'by', 'at'])
+        && request.resource.data.get('houses', {}).values().hasOnly(['none', 'viewer', 'editor', 'admin']);
       allow delete: if isAdmin();
     }
 
     // Dự án (mặt bằng) và dữ liệu móng
     match /projects/{pid} {
-      allow read: if canView();
-      allow write: if isAdmin();
+      allow read: if viewIn(pid);
+      allow write: if adminIn(pid);
 
       match /mong/{mid} {
-        allow read: if canView();
-        allow delete: if isAdmin();
-        allow create, update: if canEdit()
+        allow read: if viewIn(pid);
+        allow delete: if adminIn(pid);
+        allow create, update: if editIn(pid)
           && request.resource.data.keys().hasOnly(['d', 'by', 'byName', 'at', 'h', 'src'])
           && request.resource.data.d is list
           && request.resource.data.d.size() == 6

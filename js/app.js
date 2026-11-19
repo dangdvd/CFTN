@@ -11,12 +11,16 @@ const STEPS = [
 ];
 const NONE_COLOR = "#FFFFFF";
 const ROLE_LABEL = { viewer: "Chỉ xem", editor: "Cập nhật", admin: "Quản trị" };
+const ROLE_LV = { none: 0, viewer: 1, editor: 2, admin: 3 };
 const XLSX_URL = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
 
 // ===================== Trạng thái =====================
 let be = null;            // backend (Firebase)
 let P = null;             // mặt bằng hiện tại (data/xxx.json)
-let PROJECTS = [];        // danh sách mặt bằng (data/projects.json)
+let PROJECTS = [];        // mặt bằng người dùng được xem
+let ALL_PROJECTS = [];    // toàn bộ mặt bằng (data/projects.json)
+let roleDoc = null;       // {role: quyền mặc định cho mọi nhà, houses: {mã nhà: quyền riêng}}
+let isOwnerUser = false;
 const projCache = {};
 let me = null;            // {uid, email, name}
 let role = null;          // viewer | editor | admin
@@ -32,6 +36,15 @@ const $ = (id) => document.getElementById(id);
 // Đơn vị cấu kiện của mặt bằng: "móng" hoặc "đà kiềng"
 const U = (prj) => ((prj || P) && (prj || P).unit) || "móng";
 const UC = (prj) => { const u = U(prj); return u.charAt(0).toUpperCase() + u.slice(1); };
+// Quyền theo nhà: mã nhà = phần đầu id mặt bằng (nsp, nk, nvp, npt1, …)
+const houseKey = (pid) => pid.split("-")[0];
+function houseRole(h) {
+  if (isOwnerUser) return "admin";
+  if (!roleDoc) return "none";
+  const o = roleDoc.houses && roleDoc.houses[h];
+  return o || roleDoc.role || "none";
+}
+const isSysAdmin = () => isOwnerUser || (roleDoc && roleDoc.role === "admin");
 const canEdit = () => role === "editor" || role === "admin";
 const isAdmin = () => role === "admin";
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -165,7 +178,7 @@ function showVerify(u, note) {
 
 async function boot() {
   try {
-    PROJECTS = await (await fetch("data/projects.json", { cache: "no-cache" })).json();
+    ALL_PROJECTS = await (await fetch("data/projects.json", { cache: "no-cache" })).json();
   } catch (e) { gate(`<div class="err">Không tải được danh sách mặt bằng.</div>`); return; }
   try {
     be = await import("./backend.js");
@@ -182,13 +195,11 @@ async function boot() {
 async function afterLogin(u) {
     me = { uid: u.uid, email: (u.email || "").toLowerCase(), name: u.displayName || u.email };
     gate(`<p class="muted">Đang kiểm tra quyền của <b>${esc(me.email)}</b>…</p>`);
-    role = null;
-    if (OWNER_EMAILS.map((x) => x.toLowerCase()).includes(me.email)) role = "admin";
-    else {
-      try { const r = await be.getRole(me.email); role = r && ROLE_LABEL[r.role] ? r.role : null; }
-      catch (e) { role = null; }
-    }
-    if (!role) {
+    role = null; roleDoc = null;
+    isOwnerUser = OWNER_EMAILS.map((x) => x.toLowerCase()).includes(me.email);
+    if (!isOwnerUser) { try { roleDoc = await be.getRole(me.email); } catch (e) { roleDoc = null; } }
+    PROJECTS = ALL_PROJECTS.filter((x) => ROLE_LV[houseRole(houseKey(x.id))] >= 1);
+    if (!PROJECTS.length) {
       gate(`<p>Tài khoản <b>${esc(me.email)}</b> chưa được cấp quyền.</p>
             <p class="muted small">Gửi email này cho quản trị viên để được thêm vào danh sách, rồi tải lại trang.</p>
             <button id="gOut" style="margin-top:10px">Đăng nhập tài khoản khác</button>`);
@@ -234,6 +245,7 @@ async function switchProject(id) {
   try { P = await loadProject(id); } catch (e) { setStatus("Không tải được mặt bằng", "warn"); return; }
   if (location.hash.replace("#", "") !== P.id) history.replaceState(null, "", "#" + P.id);
   syncSelectors(P.id);
+  applyRole();
   $("multiBtn").textContent = P.cells ? "Chọn nhiều" : `Chọn nhiều ${U()}`;
   $("pTitle").textContent = P.title; $("pCT").textContent = P.congTrinh; $("pDD").textContent = P.diaDiem;
   document.title = P.name + " – " + P.title;
@@ -250,13 +262,19 @@ async function switchProject(id) {
   }, (err) => { clearTimeout(timer); setStatus("Lỗi dữ liệu: " + (err.code || err.message), "warn"); });
 }
 
+// Quyền của người dùng trên nhà của mặt bằng đang xem
+function applyRole() {
+  role = houseRole(houseKey(P.id));
+  const b = $("roleBadge"); b.textContent = ROLE_LABEL[role] || ""; b.className = "badge " + role;
+  document.querySelectorAll(".adm").forEach((e) => (e.hidden = !PROJECTS.some((x) => houseRole(houseKey(x.id)) === "admin")));
+  document.querySelectorAll(".ed").forEach((e) => (e.hidden = !canEdit()));
+}
+
 function startApp() {
   $("gate").hidden = true; $("app").hidden = false;
   $("userName").textContent = me.name;
-  const b = $("roleBadge"); b.textContent = ROLE_LABEL[role]; b.className = "badge " + role;
-  $("usersBtn").hidden = !isAdmin();
-  document.querySelectorAll(".adm").forEach((e) => (e.hidden = !isAdmin()));
-  document.querySelectorAll(".ed").forEach((e) => (e.hidden = !canEdit()));
+  $("usersBtn").hidden = !isSysAdmin();
+  $("houseSel").innerHTML = houses().map((h) => `<option value="${esc(h)}">${esc(h)}</option>`).join("");
   if (!built) {
     $("houseSel").innerHTML = houses().map((h) => `<option value="${esc(h)}">${esc(h)}</option>`).join("");
     bindUI(); built = true;
@@ -639,8 +657,8 @@ async function importExcel() {
   try {
     const X = await loadXLSX(), wb = X.read(await f.arrayBuffer(), { type: "array" });
     const sheetOf = (x) => [x.excelSheet, ...(x.excelAlt || [])].find((nm) => wb.Sheets[nm]);
-    const targets = PROJECTS.filter((x) => sheetOf(x));
-    if (!targets.length) throw new Error("File không có sheet nào khớp (" + PROJECTS.map((x) => x.excelSheet).join(", ") + ")");
+    const targets = PROJECTS.filter((x) => sheetOf(x) && houseRole(houseKey(x.id)) === "admin");
+    if (!targets.length) throw new Error("File không có sheet nào thuộc nhà bạn được quyền Quản trị");
     const cols = ["AD", "AE", "AF", "AG", "AH", "AI"], report = [];
     saving = true;
     for (const meta of targets) {
@@ -847,28 +865,63 @@ function openUsers() {
   if (!unsubRoles) unsubRoles = be.watchRoles(renderUsers, (e) => { $("usersMsg").textContent = "Lỗi: " + (e.code || e.message); });
 }
 function closeUsers() { $("usersDlg").hidden = true; }
+const RSEL = { none: "Không", viewer: "Chỉ xem", editor: "Cập nhật", admin: "Quản trị" };
+function allHouses() {
+  const out = [];
+  ALL_PROJECTS.forEach((x) => { const k = houseKey(x.id); if (!out.some((h) => h.k === k)) out.push({ k, name: splitName(x.name)[0] }); });
+  return out;
+}
+const openRows = new Set();
+let usersList = [];
+function roleSummary(u) {
+  const hs = allHouses(), def = u.role || "none", ov = u.houses || {};
+  const diff = hs.filter((h) => ov[h.k] && ov[h.k] !== def);
+  if (!diff.length) return def === "none" ? "Chưa có quyền" : `${RSEL[def]} – tất cả nhà`;
+  return `${def === "none" ? "" : RSEL[def] + " (mặc định); "}` + diff.map((h) => `${h.name}: ${RSEL[ov[h.k]]}`).join("; ");
+}
 function renderUsers(list) {
-  const owners = OWNER_EMAILS.map((x) => x.toLowerCase());
+  usersList = list;
+  const owners = OWNER_EMAILS.map((x) => x.toLowerCase()), hs = allHouses();
   list.sort((a, b) => a.email.localeCompare(b.email));
-  let h = `<tr><th>Email</th><th>Tên</th><th>Quyền</th><th></th></tr>`;
-  owners.forEach((o) => { h += `<tr><td class="em">${esc(o)}</td><td>Chủ hệ thống</td><td>Quản trị</td><td></td></tr>`; });
+  const opt = (sel, withInherit) => (withInherit ? [["", "Theo mặc định"]] : []).concat(Object.entries(RSEL))
+    .map(([k, v]) => `<option value="${k}"${(sel || "") === k ? " selected" : ""}>${v}</option>`).join("");
+  let h = `<tr><th>Email</th><th>Tên</th><th>Quyền mặc định<br><small class="muted">(áp dụng mọi nhà)</small></th><th>Theo từng nhà</th><th></th></tr>`;
+  owners.forEach((o) => { h += `<tr><td class="em">${esc(o)}</td><td>Chủ hệ thống</td><td>Quản trị</td><td class="muted small">Toàn quyền</td><td></td></tr>`; });
   list.filter((u) => !owners.includes(u.email)).forEach((u) => {
-    h += `<tr><td class="em">${esc(u.email)}</td><td>${esc(u.name || "")}</td><td><select data-em="${esc(u.email)}">` +
-      Object.keys(ROLE_LABEL).map((k) => `<option value="${k}"${u.role === k ? " selected" : ""}>${ROLE_LABEL[k]}</option>`).join("") +
-      `</select></td><td><button class="x" data-del="${esc(u.email)}" title="Xoá quyền">×</button></td></tr>`;
+    const em = esc(u.email), open = openRows.has(u.email);
+    h += `<tr><td class="em">${em}</td><td>${esc(u.name || "")}</td>` +
+      `<td><select data-def="${em}">${opt(u.role || "none", false)}</select></td>` +
+      `<td><button class="link" data-tog="${em}">${open ? "▾" : "▸"} ${esc(roleSummary(u))}</button></td>` +
+      `<td><button class="x" data-del="${em}" title="Xoá người dùng">×</button></td></tr>`;
+    if (open) {
+      h += `<tr class="sub"><td colspan="5"><div class="hgrid">` + hs.map((x) =>
+        `<label><span>${esc(x.name)}</span><select data-em="${em}" data-h="${x.k}">${opt((u.houses || {})[x.k], true)}</select></label>`).join("") +
+        `</div><div class="muted small">"Theo mặc định" = dùng quyền mặc định ở cột bên trái. Chọn "Không" để chặn riêng nhà đó.</div></td></tr>`;
+    }
   });
   $("usersTbl").innerHTML = h;
-  $("usersTbl").querySelectorAll("select").forEach((s) => {
-    s.onchange = async () => {
-      const u = list.find((x) => x.email === s.dataset.em);
-      try { await be.setRole(s.dataset.em, { role: s.value, name: (u && u.name) || "", by: me.email, at: new Date().toISOString() }); $("usersMsg").textContent = "Đã đổi quyền."; }
-      catch (e) { $("usersMsg").textContent = "Lỗi: " + (e.code || e.message); }
+  const save = async (email, patch, msg) => {
+    const u = usersList.find((x) => x.email === email) || {};
+    const doc = { role: u.role || "none", name: u.name || "", houses: { ...(u.houses || {}) }, by: me.email, at: new Date().toISOString(), ...patch };
+    Object.keys(doc.houses).forEach((k) => { if (!doc.houses[k]) delete doc.houses[k]; });
+    try { await be.setRole(email, doc); $("usersMsg").textContent = msg; }
+    catch (e) { $("usersMsg").textContent = "Lỗi: " + (e.code || e.message); }
+  };
+  $("usersTbl").querySelectorAll("[data-def]").forEach((s) => { s.onchange = () => save(s.dataset.def, { role: s.value }, "Đã đổi quyền mặc định."); });
+  $("usersTbl").querySelectorAll("select[data-h]").forEach((s) => {
+    s.onchange = () => {
+      const u = usersList.find((x) => x.email === s.dataset.em) || {};
+      const hsMap = { ...(u.houses || {}) }; if (s.value) hsMap[s.dataset.h] = s.value; else delete hsMap[s.dataset.h];
+      save(s.dataset.em, { houses: hsMap }, "Đã đổi quyền theo nhà.");
     };
+  });
+  $("usersTbl").querySelectorAll("[data-tog]").forEach((b) => {
+    b.onclick = () => { const e = b.dataset.tog; openRows.has(e) ? openRows.delete(e) : openRows.add(e); renderUsers(usersList); };
   });
   $("usersTbl").querySelectorAll("[data-del]").forEach((b) => {
     b.onclick = async () => {
       if (b.dataset.confirm !== "1") { b.dataset.confirm = "1"; b.textContent = "Xoá?"; b.style.color = "#d92d20"; b.style.fontSize = "12px"; return; }
-      try { await be.deleteRole(b.dataset.del); $("usersMsg").textContent = "Đã xoá quyền."; }
+      try { await be.deleteRole(b.dataset.del); $("usersMsg").textContent = "Đã xoá người dùng."; }
       catch (e) { $("usersMsg").textContent = "Lỗi: " + (e.code || e.message); }
     };
   });
@@ -878,8 +931,9 @@ async function addUser(e) {
   const email = $("newEmail").value.trim().toLowerCase(), name = $("newName").value.trim(), r = $("newRole").value;
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { $("usersMsg").textContent = "Email không hợp lệ."; return; }
   try {
-    await be.setRole(email, { role: r, name, by: me.email, at: new Date().toISOString() });
-    $("usersMsg").textContent = `Đã thêm ${email} (${ROLE_LABEL[r]}).`; $("addUser").reset();
+    await be.setRole(email, { role: r, name, houses: {}, by: me.email, at: new Date().toISOString() });
+    if (r === "none") openRows.add(email);
+    $("usersMsg").textContent = `Đã thêm ${email} (${RSEL[r]}${r === "none" ? " – hãy chọn quyền theo từng nhà bên dưới" : " – tất cả nhà"}).`; $("addUser").reset();
   } catch (err) { $("usersMsg").textContent = "Lỗi: " + (err.code || err.message); }
 }
 
