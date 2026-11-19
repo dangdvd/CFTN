@@ -42,7 +42,8 @@ header .meta b{color:var(--ink);font-weight:600}
 .status{font-size:12px;padding:3px 10px;border-radius:999px;background:#eef2ff;color:#3730a3;white-space:nowrap}
 .status.warn{background:#fff7e6;color:#9a5b00}.status.ok{background:#ecfdf3;color:#05603a}
 .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 16px;background:var(--card);border-bottom:1px solid var(--line);font-size:13px}
-.projsel{font-weight:600;max-width:260px}
+.projsel{font-weight:600;max-width:200px}
+#kindSel{min-width:110px}
 .toolbar label{display:flex;gap:6px;align-items:center;color:var(--mute)}
 .pdfwrap{position:relative;display:inline-block}
 .menu{position:absolute;top:calc(100% + 4px);right:0;z-index:15;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(16,24,40,.15);padding:4px;display:flex;flex-direction:column;min-width:250px}
@@ -127,7 +128,7 @@ table.users td.em{word-break:break-all}
   .toolbar>*{flex:none}
   .toolbar .lbl{display:none}
   .toolbar button,.toolbar select,.toolbar input{font-size:12.5px;padding:6px 8px}
-  .projsel{max-width:190px}
+  .projsel{max-width:150px}
   .sep{display:none}
 
   /* Mặt bằng full màn hình, bảng chi tiết là ngăn kéo */

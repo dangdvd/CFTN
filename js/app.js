@@ -206,6 +206,20 @@ function cleanup() {
 
 // ===================== Ứng dụng =====================
 let built = false;
+// Tên mặt bằng dạng "Nhà … – Móng" → [nhà, loại mặt bằng]
+function splitName(n) { const i = n.lastIndexOf(" – "); return i < 0 ? [n, ""] : [n.slice(0, i), n.slice(i + 3)]; }
+const KIND_ORDER = ["Móng", "Đà kiềng"];
+function plansOf(h) {
+  return PROJECTS.filter((x) => splitName(x.name)[0] === h)
+    .sort((a, b) => KIND_ORDER.indexOf(splitName(a.name)[1]) - KIND_ORDER.indexOf(splitName(b.name)[1]));
+}
+function houses() { const out = []; PROJECTS.forEach((x) => { const h = splitName(x.name)[0]; if (!out.includes(h)) out.push(h); }); return out; }
+function syncSelectors(id) {
+  const meta = PROJECTS.find((x) => x.id === id), h = splitName(meta.name)[0];
+  $("houseSel").value = h;
+  $("kindSel").innerHTML = plansOf(h).map((x) => `<option value="${esc(x.id)}">${esc(splitName(x.name)[1])}</option>`).join("");
+  $("kindSel").value = id;
+}
 async function loadProject(id) {
   const meta = PROJECTS.find((x) => x.id === id) || PROJECTS[0];
   if (!projCache[meta.id]) projCache[meta.id] = await (await fetch(meta.file, { cache: "no-cache" })).json();
@@ -219,7 +233,7 @@ async function switchProject(id) {
   multi = false; $("multiBtn").classList.remove("on"); setSheet(false);
   try { P = await loadProject(id); } catch (e) { setStatus("Không tải được mặt bằng", "warn"); return; }
   if (location.hash.replace("#", "") !== P.id) history.replaceState(null, "", "#" + P.id);
-  $("projSel").value = P.id;
+  syncSelectors(P.id);
   $("multiBtn").textContent = P.cells ? "Chọn nhiều" : `Chọn nhiều ${U()}`;
   $("pTitle").textContent = P.title; $("pCT").textContent = P.congTrinh; $("pDD").textContent = P.diaDiem;
   document.title = P.name + " – " + P.title;
@@ -244,7 +258,7 @@ function startApp() {
   document.querySelectorAll(".adm").forEach((e) => (e.hidden = !isAdmin()));
   document.querySelectorAll(".ed").forEach((e) => (e.hidden = !canEdit()));
   if (!built) {
-    $("projSel").innerHTML = PROJECTS.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join("");
+    $("houseSel").innerHTML = houses().map((h) => `<option value="${esc(h)}">${esc(h)}</option>`).join("");
     bindUI(); built = true;
   }
   switchProject(currentHashId());
@@ -418,7 +432,13 @@ function bindUI() {
   };
   $("clearSel").onclick = () => { sel.clear(); paint(); renderPanel(); };
   $("asof").onchange = paint;
-  $("projSel").onchange = () => switchProject($("projSel").value);
+  $("houseSel").onchange = () => {
+    const h = $("houseSel").value, cur = splitName(P ? PROJECTS.find((x) => x.id === P.id).name : "")[1];
+    const list = plansOf(h);
+    const pick = list.find((x) => splitName(x.name)[1] === cur) || list[0];
+    switchProject(pick.id);
+  };
+  $("kindSel").onchange = () => switchProject($("kindSel").value);
   window.addEventListener("hashchange", () => { const id = currentHashId(); if (me && role && (!P || P.id !== id)) switchProject(id); });
   $("today").onclick = () => { $("asof").value = todayStr(); paint(); };
   $("logoutBtn").onclick = () => be.signOut();
