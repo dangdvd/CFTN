@@ -29,6 +29,9 @@ let unsubMong = null, unsubRoles = null;
 let lastMsg = null;
 
 const $ = (id) => document.getElementById(id);
+// Đơn vị cấu kiện của mặt bằng: "móng" hoặc "đà kiềng"
+const U = (prj) => ((prj || P) && (prj || P).unit) || "móng";
+const UC = (prj) => { const u = U(prj); return u.charAt(0).toUpperCase() + u.slice(1); };
 const canEdit = () => role === "editor" || role === "admin";
 const isAdmin = () => role === "admin";
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -181,6 +184,7 @@ async function switchProject(id) {
   try { P = await loadProject(id); } catch (e) { setStatus("Không tải được mặt bằng", "warn"); return; }
   if (location.hash.replace("#", "") !== P.id) history.replaceState(null, "", "#" + P.id);
   $("projSel").value = P.id;
+  $("multiBtn").textContent = `Chọn nhiều ${U()}`;
   $("pTitle").textContent = P.title; $("pCT").textContent = P.congTrinh; $("pDD").textContent = P.diaDiem;
   document.title = P.name + " – " + P.title;
   buildMap(); requestAnimationFrame(() => fit(isMobile()));
@@ -253,7 +257,7 @@ function paint() {
     o.r.setAttribute("fill", colorOf(l));
     o.r.setAttribute("fill-opacity", l === 0 ? "0.55" : "0.72");
     o.g.classList.toggle("sel", sel.has(n));
-    o.tt.textContent = `Móng ${n} – ${l === 0 ? "Chưa thi công" : STEPS[l - 1].name}`;
+    o.tt.textContent = `${UC()} ${n} – ${l === 0 ? "Chưa thi công" : STEPS[l - 1].name}`;
   }
   renderStats();
 }
@@ -266,7 +270,7 @@ function stats(asof) {
 function renderStats() {
   const asof = $("asof").value, total = P.geo.length, cnt = stats(asof);
   $("statDate").textContent = fmt(asof);
-  let h = `<tr><td>Tổng số móng</td><td>${total}</td></tr>`;
+  let h = `<tr><td>Tổng số ${U()}</td><td>${total}</td></tr>`;
   STEPS.forEach((s, i) => {
     const p = Math.round((cnt[i] / total) * 100);
     h += `<tr><td>${s.name}<div class="bar"><i style="width:${p}%;background:${s.color}"></i></div></td><td>${cnt[i]} (${p}%)</td></tr>`;
@@ -393,11 +397,11 @@ function updateHandle() {
   const t = $("handleText"); if (!t || !P) return;
   if (sel.size === 1 && !multi) {
     const n = [...sel][0], l = level(n, $("asof").value);
-    t.textContent = `Móng ${n} – ${l === 0 ? "Chưa thi công" : STEPS[l - 1].name}`;
-  } else if (sel.size > 0) t.textContent = `${sel.size} móng đã chọn`;
+    t.textContent = `${UC()} ${n} – ${l === 0 ? "Chưa thi công" : STEPS[l - 1].name}`;
+  } else if (sel.size > 0) t.textContent = `${sel.size} ${U()} đã chọn`;
   else {
     const cnt = stats($("asof").value), tot = P.geo.length;
-    t.textContent = `Tổng hợp: ${tot} móng · Đổ BT ${Math.round(cnt[4] / tot * 100)}% · Lấp đất ${Math.round(cnt[5] / tot * 100)}%`;
+    t.textContent = `Tổng hợp: ${tot} ${U()} · Đổ BT ${Math.round(cnt[4] / tot * 100)}% · Lấp đất ${Math.round(cnt[5] / tot * 100)}%`;
   }
 }
 
@@ -419,10 +423,10 @@ function _renderPanel() {
   const ro = !canEdit() ? `<div class="note">Bạn có quyền chỉ xem.</div>` : "";
   if (sel.size === 0) {
     const emptyDb = online && Object.keys(data).length === 0;
-    panel.innerHTML = `<h2>Chi tiết móng</h2>${ro}` +
+    panel.innerHTML = `<h2>Chi tiết ${U()}</h2>${ro}` +
       (emptyDb && isAdmin() ? `<div class="note info">Mặt bằng này chưa có dữ liệu. Bấm <b>⬆ Nhập từ Excel</b> và chọn file có sheet <b>${esc(P.excelSheet)}</b>.</div>` : "") +
-      `<div class="empty">Bấm vào một móng trên mặt bằng để xem${canEdit() ? " và nhập ngày hoàn thành từng công tác" : " ngày hoàn thành từng công tác"}.` +
-      (canEdit() ? `<br><br>Muốn cập nhật cả loạt, bật <b>Chọn nhiều móng</b> rồi bấm lần lượt các móng.` : "") +
+      `<div class="empty">Bấm vào một ${U()} trên mặt bằng để xem${canEdit() ? " và nhập ngày hoàn thành từng công tác" : " ngày hoàn thành từng công tác"}.` +
+      (canEdit() ? `<br><br>Muốn cập nhật cả loạt, bật <b>Chọn nhiều</b> rồi bấm lần lượt các ${U()}.` : "") +
       `</div><div class="msg" id="msg"></div>`;
     return;
   }
@@ -432,7 +436,7 @@ function _renderPanel() {
 
 function renderSingle(n, ro) {
   const panel = $("panel"), r = rec(n), l = level(n, null), ed = canEdit();
-  let h = `<div class="selhead"><b>Móng ${esc(n)}</b><small>${l === 0 ? "Chưa thi công" : "Đã xong: " + STEPS[l - 1].name}</small></div>${ro}<div class="steps">`;
+  let h = `<div class="selhead"><b>${UC()} ${esc(n)}</b><small>${l === 0 ? "Chưa thi công" : "Đã xong: " + STEPS[l - 1].name}</small></div>${ro}<div class="steps">`;
   STEPS.forEach((s, i) => {
     const v = (r.d && r.d[i]) || "";
     h += `<div class="step"><i class="sw" style="background:${s.color};opacity:.8"></i><span>${s.name}</span>` +
@@ -459,19 +463,19 @@ function renderSingle(n, ro) {
   saveBtn.onclick = () => { const nd = []; inputs.forEach((inp) => (nd[+inp.dataset.i] = inp.value || null)); saveMany([n], () => nd); };
   $("quick").onclick = () => {
     const cur = (r.d || []).slice(), nx = level(n, null);
-    if (nx >= 6) { msg("Móng này đã hoàn thành tất cả công tác."); return; }
+    if (nx >= 6) { msg(`${UC()} này đã hoàn thành tất cả công tác.`); return; }
     cur[nx] = todayStr(); saveMany([n], () => cur);
   };
 }
 
 function renderMulti(ro) {
   const panel = $("panel"), list = [...sel].sort((a, b) => a - b);
-  let h = `<div class="selhead"><b>${list.length} móng đã chọn</b><small>bấm móng để thêm / bỏ</small></div>${ro}`;
+  let h = `<div class="selhead"><b>${list.length} ${U()} đã chọn</b><small>bấm ${U()} để thêm / bỏ</small></div>${ro}`;
   h += `<div class="multi"><div class="chips">${list.map((n) => `<span>${esc(n)}</span>`).join("")}</div>`;
   if (canEdit()) {
     h += `<label>Công tác <select id="mStep">${STEPS.map((s, i) => `<option value="${i}">${s.name}</option>`).join("")}</select></label>`;
     h += `<label>Ngày hoàn thành <input type="date" id="mDate" value="${todayStr()}"></label>`;
-    h += `<div class="actions"><button class="primary" id="mSave">Cập nhật ${list.length} móng</button><button id="mClear">Xoá ngày công tác này</button></div>`;
+    h += `<div class="actions"><button class="primary" id="mSave">Cập nhật ${list.length} ${U()}</button><button id="mClear">Xoá ngày công tác này</button></div>`;
   }
   h += `<div class="msg" id="msg"></div></div>`;
   panel.innerHTML = h;
@@ -512,7 +516,7 @@ async function saveMany(list, makeNew, via) {
   } catch (e) { fail = e; }
   saving = false; paint(); renderPanel();
   if (fail) msg("Không lưu được: " + (fail.code === "permission-denied" ? "không có quyền ghi." : fail.code || fail.message));
-  else msg(entries.length ? `Đã lưu ${entries.length} móng.` : "Không có gì thay đổi.", true);
+  else msg(entries.length ? `Đã lưu ${entries.length} ${U()}.` : "Không có gì thay đổi.", true);
   return { done: fail ? 0 : entries.length, fail };
 }
 
@@ -553,7 +557,7 @@ async function importExcel() {
       const entries = makeEntries(existing, Object.keys(rows), (n) => rows[n], "Nhập từ Excel");
       if (entries.length) await be.saveMongMany(prj.id, entries);
       if (P && prj.id === P.id) entries.forEach(([n, d]) => (data[n] = d));
-      report.push(`${meta.name}: ${entries.length} thay đổi`);
+      report.push(`${meta.name}: ${entries.length} ${U(prj)} thay đổi`);
     }
     saving = false; sel.clear(); paint(); renderPanel();
     setStatus("Đã nhập Excel – " + report.join(" · "), "ok");
@@ -567,7 +571,7 @@ function excelSerial(s) { const [y, m, d] = s.split("-").map(Number); return (Da
 async function exportExcel() {
   try {
     const X = await loadXLSX(), asof = $("asof").value;
-    const aoa = [["Móng", ...STEPS.map((s) => s.name), "Công tác hiện tại", "Cập nhật lần cuối", "Người cập nhật"]];
+    const aoa = [[UC(), ...STEPS.map((s) => s.name), "Công tác hiện tại", "Cập nhật lần cuối", "Người cập nhật"]];
     P.geo.map((g) => g.n).sort((a, b) => a - b).forEach((n) => {
       const r = rec(n), l = level(n, asof);
       aoa.push([Number(n), ...norm(r.d).map((d) => (d && d <= asof ? { t: "n", v: excelSerial(d), z: "dd/mm/yyyy" } : "")),
@@ -615,7 +619,7 @@ async function renderPlanCanvas(prj, map, asof) {
   });
   // Tiêu đề
   c.fillStyle = "#111"; c.textAlign = "center"; c.textBaseline = "alphabetic";
-  c.font = "bold 58px Arial"; c.fillText(`${prj.title} – ${prj.kind.toUpperCase()}`, W / 2, 72);
+  c.font = "bold 58px Arial"; c.fillText(prj.title, W / 2, 72);
   c.font = "34px Arial"; c.textAlign = "left";
   c.fillText(`Công trình: ${prj.congTrinh}`, 40, 130); c.fillText(`Địa điểm: ${prj.diaDiem}`, 40, 172);
   c.textAlign = "right"; c.font = "bold 38px Arial"; c.fillText(`Ngày: ${fmt(asof)}`, W - 40, 130);
@@ -626,7 +630,7 @@ async function renderPlanCanvas(prj, map, asof) {
   for (let i = 1; i < 7; i++) { c.moveTo(40 + colW * i, y0); c.lineTo(40 + colW * i, y0 + 130); }
   c.stroke();
   c.textAlign = "center"; c.fillStyle = "#111";
-  ["Tổng số móng", ...STEPS.map((x) => x.name)].forEach((t, i) => {
+  [`Tổng số ${U(prj)}`, ...STEPS.map((x) => x.name)].forEach((t, i) => {
     if (i > 0) { c.globalAlpha = 0.75; c.fillStyle = STEPS[i - 1].color; c.fillRect(40 + colW * i + 1, y0 + 1, colW - 2, 58); c.globalAlpha = 1; }
     c.fillStyle = "#111"; c.font = "bold 32px Arial"; c.fillText(t, 40 + colW * (i + 0.5), y0 + 42);
   });
@@ -663,7 +667,7 @@ async function exportPdf(all) {
       const k = Math.min((pw - 2 * m) / cv.width, (ph - 2 * m) / cv.height), w = cv.width * k, h = cv.height * k;
       doc.addImage(cv.toDataURL("image/jpeg", 0.92), "JPEG", (pw - w) / 2, (ph - h) / 2, w, h, undefined, "FAST");
     }
-    doc.setProperties({ title: all ? "Tiến độ thi công móng – tất cả mặt bằng" : `${P.name} – ${fmt(asof)}`, creator: "CFTN" });
+    doc.setProperties({ title: all ? "Tiến độ thi công móng & đà kiềng – tất cả mặt bằng" : `${P.name} – ${fmt(asof)}`, creator: "CFTN" });
     doc.save(all ? `TienDo_TatCa_${asof}.pdf` : `MatBang_${P.excelSheet}_${asof}.pdf`);
     setStatus(online ? "Trực tuyến" : "Đã xuất PDF", "ok");
   } catch (e) { setStatus("Xuất PDF lỗi: " + (e.code === "permission-denied" ? "không có quyền đọc" : e.message), "warn"); }
