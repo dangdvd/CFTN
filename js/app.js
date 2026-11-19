@@ -536,13 +536,25 @@ function renderMulti(ro) {
   if (canEdit() && !allowed.length) {
     h += `<div class="note">Đang chọn lẫn ô lấp đất và ${U()}. Hãy chọn riêng từng loại để cập nhật.</div>`;
   } else if (canEdit()) {
-    h += `<label>Công tác <select id="mStep">${allowed.map((i) => `<option value="${i}">${STEPS[i].name}</option>`).join("")}</select></label>`;
-    h += `<label>Ngày hoàn thành <input type="date" id="mDate" value="${todayStr()}"></label>`;
+    // Mặc định: công tác hiện tại chung của các cấu kiện đã chọn; nếu khác nhau thì công tác tiếp theo của cấu kiện chậm nhất
+    const lv = list.map((n) => level(n, null));
+    const same = lv.every((x) => x === lv[0]);
+    let defStep = same && lv[0] > 0 ? lv[0] - 1 : Math.min(...lv);
+    if (!allowed.includes(defStep)) defStep = allowed.find((i) => i >= defStep) ?? allowed[allowed.length - 1];
+    const dates = list.map((n) => norm(rec(n).d)[defStep]);
+    const defDate = dates[0] && dates.every((x) => x === dates[0]) ? dates[0] : todayStr();
+    h += `<div class="muted small">${same ? (lv[0] ? "Cùng đang ở công tác: <b>" + STEPS[lv[0] - 1].name + "</b>" : (isCell(list[0]) ? "Cùng chưa lấp đất" : "Cùng chưa thi công")) : "Các cấu kiện đang ở công tác khác nhau"}</div>`;
+    h += `<label>Công tác <select id="mStep">${allowed.map((i) => `<option value="${i}"${i === defStep ? " selected" : ""}>${STEPS[i].name}</option>`).join("")}</select></label>`;
+    h += `<label>Ngày hoàn thành <input type="date" id="mDate" value="${defDate}"></label>`;
     h += `<div class="actions"><button class="primary" id="mSave">Cập nhật ${list.length} cấu kiện</button><button id="mClear">Xoá ngày công tác này</button></div>`;
   }
   h += `<div class="msg" id="msg"></div></div>`;
   panel.innerHTML = h;
   if (!canEdit() || !allowed.length) return;
+  $("mStep").onchange = () => {
+    const i = +$("mStep").value, ds = list.map((n) => norm(rec(n).d)[i]);
+    $("mDate").value = ds[0] && ds.every((x) => x === ds[0]) ? ds[0] : todayStr();
+  };
   $("mSave").onclick = () => {
     const i = +$("mStep").value, d = $("mDate").value; if (!d) { msg("Chọn ngày trước."); return; }
     saveMany(list, (n) => { const c = norm(rec(n).d); c[i] = d; return c; });
