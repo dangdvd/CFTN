@@ -65,6 +65,16 @@
   "excelSheet": "NVP_DaKieng"
  },
  {
+  "id": "nvp-cocot",
+  "name": "Nhà văn phòng – Cổ cột",
+  "file": "data/nvp-cocot.json"
+ },
+ {
+  "id": "nvp-cot1",
+  "name": "Nhà văn phòng – Cột tầng 1",
+  "file": "data/nvp-cot1.json"
+ },
+ {
   "id": "npt1-mong",
   "name": "Nhà phụ trợ 1 – Móng",
   "file": "data/npt1-mong.json",
