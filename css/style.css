@@ -13,7 +13,7 @@ input[type=date],input[type=email],input[type=text],select{font:inherit;font-siz
 /* Đăng nhập */
 .gate{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#eef2ff,#f4f5f7);padding:20px}
 .gate-card{background:#fff;border-radius:14px;box-shadow:0 10px 40px rgba(16,24,40,.12);padding:32px 28px;max-width:400px;width:100%;text-align:center}
-.gate-logo{font-size:40px;color:var(--acc);line-height:1}
+.gate-logo{width:160px;max-width:60%;height:auto;display:block;margin:0 auto}
 .gate h1{font-size:19px;margin:12px 0 4px}
 .gbtn{display:inline-flex;align-items:center;gap:10px;padding:10px 18px;font-size:14px;font-weight:600;margin-top:18px}
 .gbtn svg{width:18px;height:18px}
