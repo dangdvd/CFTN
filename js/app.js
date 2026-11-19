@@ -60,7 +60,7 @@ function cellLabel(n, prj) {
   if (!prj._cl) { prj._cl = {}; (prj.cells || []).forEach((c) => (prj._cl[c.n] = c.t)); }
   return prj._cl[n] || n.slice(1);
 }
-function itemName(n, prj) { return isCell(n) ? `Ô ${cellLabel(n, prj)}` : `${UC(prj)} ${n}`; }
+function itemName(n, prj) { return isCell(n) ? `O${cellLabel(n, prj)}` : `${UC(prj)} ${n}`; }
 const sortKey = (n) => (isCell(n) ? 100000 + Number(cellLabel(n)) : Number(n));
 // Đường SVG cho ô có nhiều vòng (vòng ngoài + lỗ móng), tô theo evenodd
 function ringsPath(rings) {
@@ -272,7 +272,7 @@ function buildMap() {
     r.setAttribute("d", ringsPath(rings)); r.setAttribute("fill-rule", "evenodd");
     const t = document.createElementNS(NS, "text");
     t.setAttribute("x", l[0]); t.setAttribute("y", l[1]); t.setAttribute("font-size", f);
-    t.textContent = "Ô" + label;
+    t.textContent = "O" + label;
     const tt = document.createElementNS(NS, "title");
     g.append(tt, r, t); svg.appendChild(g);
     nodes[n] = { g, r, tt, cell: true };
@@ -523,7 +523,7 @@ function renderMulti(ro) {
   const panel = $("panel"), list = [...sel].sort((a, b) => sortKey(a) - sortKey(b));
   const allowed = ALL_STEPS.filter((i) => list.every((n) => stepsFor(P, n).includes(i)));
   let h = `<div class="selhead"><b>${list.length} cấu kiện đã chọn</b><small>bấm để thêm / bỏ</small></div>${ro}`;
-  h += `<div class="multi"><div class="chips">${list.map((n) => `<span>${esc(isCell(n) ? "Ô " + cellLabel(n) : n)}</span>`).join("")}</div>`;
+  h += `<div class="multi"><div class="chips">${list.map((n) => `<span>${esc(isCell(n) ? "O" + cellLabel(n) : n)}</span>`).join("")}</div>`;
   if (canEdit() && !allowed.length) {
     h += `<div class="note">Đang chọn lẫn ô lấp đất và ${U()}. Hãy chọn riêng từng loại để cập nhật.</div>`;
   } else if (canEdit()) {
@@ -631,7 +631,7 @@ async function exportExcel() {
     const aoa = [[UC(), ...STEPS.map((s) => s.name), "Công tác hiện tại", "Cập nhật lần cuối", "Người cập nhật"]];
     P.geo.map((g) => g.n).concat((P.cells || []).map((c) => c.n)).sort((a, b) => sortKey(a) - sortKey(b)).forEach((n) => {
       const r = rec(n), l = level(n, asof), allowed = stepsFor(P, n);
-      aoa.push([isCell(n) ? "Ô " + cellLabel(n) : Number(n), ...norm(r.d).map((d, i) => (d && d <= asof && allowed.includes(i) ? { t: "n", v: excelSerial(d), z: "dd/mm/yyyy" } : "")),
+      aoa.push([isCell(n) ? "O" + cellLabel(n) : Number(n), ...norm(r.d).map((d, i) => (d && d <= asof && allowed.includes(i) ? { t: "n", v: excelSerial(d), z: "dd/mm/yyyy" } : "")),
         l === 0 ? (isCell(n) ? "Chưa lấp đất" : "Chưa thi công") : STEPS[l - 1].name, r.at ? new Date(r.at).toLocaleString("vi-VN") : "", r.byName || ""]);
     });
     const ws = X.utils.aoa_to_sheet(aoa);
@@ -680,7 +680,7 @@ async function renderPlanCanvas(prj, map, asof) {
     if (l) { c.globalAlpha = 0.45; c.fillStyle = colorOf(l); c.fill("evenodd"); }
     c.globalAlpha = 0.7; c.strokeStyle = "#7030A0"; c.lineWidth = 2; c.setLineDash([10, 8]); c.stroke(); c.setLineDash([]);
     c.globalAlpha = 0.75; c.fillStyle = "#4a1d6e"; c.font = `${Math.max(14, f * s * 0.8)}px Arial`; c.textAlign = "center"; c.textBaseline = "middle";
-    c.fillText("Ô" + label, lb[0] * s, head + lb[1] * s); c.globalAlpha = 1;
+    c.fillText("O" + label, lb[0] * s, head + lb[1] * s); c.globalAlpha = 1;
   });
   prj.geo.forEach(({ n, p, l: lb, a, f }) => {
     const l = levelIn(prj, map, n, asof);
