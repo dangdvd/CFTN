@@ -510,7 +510,16 @@ function renderSingle(n, ro) {
   const inputs = panel.querySelectorAll("input[type=date]"), saveBtn = $("save");
   const dirty = () => { const cur = r.d || []; let ch = false; inputs.forEach((inp) => { if ((inp.value || null) !== (cur[+inp.dataset.i] || null)) ch = true; }); saveBtn.disabled = !ch; };
   inputs.forEach((inp) => { inp.oninput = dirty; inp.onchange = dirty; });
-  panel.querySelectorAll(".x").forEach((b) => { b.onclick = () => { inputs[+b.dataset.i].value = ""; dirty(); }; });
+  // × xoá ngày của công tác đó (tìm ô nhập theo data-i, vì ô lấp đất chỉ có 1 ô nhập) rồi lưu luôn
+  panel.querySelectorAll(".x").forEach((b) => {
+    b.onclick = () => {
+      const inp = panel.querySelector(`input[type=date][data-i="${b.dataset.i}"]`);
+      if (!inp || !inp.value) return;
+      inp.value = ""; dirty();
+      const nd = norm(r.d); inputs.forEach((x) => (nd[+x.dataset.i] = x.value || null));
+      saveMany([n], () => nd);
+    };
+  });
   saveBtn.onclick = () => { const nd = norm(r.d); inputs.forEach((inp) => (nd[+inp.dataset.i] = inp.value || null)); saveMany([n], () => nd); };
   $("quick").onclick = () => {
     const cur = norm(r.d), nx = allowed.find((i) => i >= level(n, null));
