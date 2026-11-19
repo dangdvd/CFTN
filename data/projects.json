@@ -9,13 +9,19 @@
   "id": "nsp-mong",
   "name": "Nhà sấy phun – Móng",
   "file": "data/nsp-mong.json",
-  "excelSheet": "NSP_Mong"
+  "excelSheet": "NSP_Mong",
+  "excelAlt": [
+   "NSP"
+  ]
  },
  {
   "id": "nk-mong",
   "name": "Nhà kho – Móng",
   "file": "data/nk-mong.json",
-  "excelSheet": "NKho_Mong"
+  "excelSheet": "NKho_Mong",
+  "excelAlt": [
+   "NKho"
+  ]
  },
  {
   "id": "nk-dakieng",
@@ -27,12 +33,39 @@
   "id": "nvp-mong",
   "name": "Nhà văn phòng – Móng",
   "file": "data/nvp-mong.json",
-  "excelSheet": "NVP_Mong"
+  "excelSheet": "NVP_Mong",
+  "excelAlt": [
+   "NVP"
+  ]
  },
  {
   "id": "nvp-dakieng",
   "name": "Nhà văn phòng – Đà kiềng",
   "file": "data/nvp-dakieng.json",
   "excelSheet": "NVP_DaKieng"
+ },
+ {
+  "id": "npt1-mong",
+  "name": "Nhà phụ trợ 1 – Móng",
+  "file": "data/npt1-mong.json",
+  "excelSheet": "NPT1"
+ },
+ {
+  "id": "npt2-mong",
+  "name": "Nhà phụ trợ 2 – Móng",
+  "file": "data/npt2-mong.json",
+  "excelSheet": "NPT2"
+ },
+ {
+  "id": "nx-mong",
+  "name": "Nhà xe – Móng",
+  "file": "data/nx-mong.json",
+  "excelSheet": "NhaXe"
+ },
+ {
+  "id": "nsl-mong",
+  "name": "Nhà sấy lạnh – Móng",
+  "file": "data/nsl-mong.json",
+  "excelSheet": "NSL"
  }
 ]

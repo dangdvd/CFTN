@@ -618,13 +618,14 @@ async function importExcel() {
   setStatus("Đang đọc file Excel…");
   try {
     const X = await loadXLSX(), wb = X.read(await f.arrayBuffer(), { type: "array" });
-    const targets = PROJECTS.filter((x) => wb.Sheets[x.excelSheet]);
+    const sheetOf = (x) => [x.excelSheet, ...(x.excelAlt || [])].find((nm) => wb.Sheets[nm]);
+    const targets = PROJECTS.filter((x) => sheetOf(x));
     if (!targets.length) throw new Error("File không có sheet nào khớp (" + PROJECTS.map((x) => x.excelSheet).join(", ") + ")");
     const cols = ["AD", "AE", "AF", "AG", "AH", "AI"], report = [];
     saving = true;
     for (const meta of targets) {
       setStatus(`Đang nhập ${meta.name}…`);
-      const prj = await loadProject(meta.id), ws = wb.Sheets[meta.excelSheet];
+      const prj = await loadProject(meta.id), ws = wb.Sheets[sheetOf(meta)];
       const known = new Set(prj.geo.map((g) => g.n)), rows = {};
       for (let r = prj.excelFirstRow || 7; r <= 2000; r++) {
         const c = ws["AA" + r]; if (!c || c.v === "" || c.v === undefined) continue;
