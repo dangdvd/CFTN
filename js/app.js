@@ -39,7 +39,33 @@ function todayStr() { const t = new Date(); t.setMinutes(t.getMinutes() - t.getT
 function fmt(s) { if (!s) return ""; const p = s.split("-"); return `${p[2]}/${p[1]}/${p[0]}`; }
 function rec(n) { return data[n] || { d: [null, null, null, null, null, null], h: [] }; }
 function norm(a) { const o = []; for (let i = 0; i < 6; i++) o.push(a && a[i] ? a[i] : null); return o; }
-function level(n, asof) { const d = rec(n).d || []; for (let i = 5; i >= 0; i--) if (d[i] && (!asof || d[i] <= asof)) return i + 1; return 0; }
+// Ô lấp đất (id "O1", "O2", …): vùng giữa các đà kiềng, chỉ theo dõi công tác Lấp đất.
+// Mặt bằng có ô (prj.cells) thì Lấp đất được tính theo ô, đà kiềng chỉ theo dõi 5 công tác đầu.
+const isCell = (n) => /^O\d+$/.test(n);
+const ALL_STEPS = [0, 1, 2, 3, 4, 5];
+function stepsFor(prj, n) {
+  if (!prj || !prj.cells) return ALL_STEPS;
+  const cs = prj.cellStep ?? 5;
+  return isCell(n) ? [cs] : ALL_STEPS.filter((i) => i !== cs);
+}
+function levelIn(prj, map, n, asof) {
+  const d = (map[n] && map[n].d) || [], st = stepsFor(prj, n);
+  for (let k = st.length - 1; k >= 0; k--) { const i = st[k]; if (d[i] && (!asof || d[i] <= asof)) return i + 1; }
+  return 0;
+}
+function level(n, asof) { return levelIn(P, data, n, asof); }
+function itemName(n, prj) { return isCell(n) ? `Ô ${n.slice(1)}` : `${UC(prj)} ${n}`; }
+const sortKey = (n) => (isCell(n) ? 100000 + Number(n.slice(1)) : Number(n));
+// Thống kê: cnt[i] = số cấu kiện đã xong công tác i (cộng dồn), tot[i] = tổng số cấu kiện của công tác i
+function statsIn(prj, map, asof) {
+  const cnt = [0, 0, 0, 0, 0, 0], tot = [0, 0, 0, 0, 0, 0], cs = prj.cells ? (prj.cellStep ?? 5) : -1;
+  prj.geo.forEach((g) => {
+    const l = levelIn(prj, map, g.n, asof);
+    for (let i = 0; i < 6; i++) if (i !== cs) { tot[i]++; if (l > i) cnt[i]++; }
+  });
+  if (prj.cells) prj.cells.forEach((c) => { tot[cs]++; if (levelIn(prj, map, c.n, asof)) cnt[cs]++; });
+  return { cnt, tot };
+}
 const colorOf = (l) => (l === 0 ? NONE_COLOR : STEPS[l - 1].color);
 function setStatus(t, c) { const s = $("status"); s.textContent = t; s.className = "status " + (c || ""); }
 
@@ -184,7 +210,7 @@ async function switchProject(id) {
   try { P = await loadProject(id); } catch (e) { setStatus("Không tải được mặt bằng", "warn"); return; }
   if (location.hash.replace("#", "") !== P.id) history.replaceState(null, "", "#" + P.id);
   $("projSel").value = P.id;
-  $("multiBtn").textContent = `Chọn nhiều ${U()}`;
+  $("multiBtn").textContent = P.cells ? "Chọn nhiều" : `Chọn nhiều ${U()}`;
   $("pTitle").textContent = P.title; $("pCT").textContent = P.congTrinh; $("pDD").textContent = P.diaDiem;
   document.title = P.name + " – " + P.title;
   buildMap(); requestAnimationFrame(() => fit(isMobile()));
@@ -230,6 +256,18 @@ function buildMap() {
   img.setAttribute("width", P.width); img.setAttribute("height", P.height);
   img.setAttribute("preserveAspectRatio", "none");
   svg.appendChild(img);
+  (P.cells || []).forEach(({ n, t: label, p, l, f }) => {
+    const g = document.createElementNS(NS, "g"); g.setAttribute("class", "mong cell"); g.dataset.n = n;
+    const r = document.createElementNS(NS, "polygon");
+    const pts = []; for (let i = 0; i < p.length; i += 2) pts.push(p[i] + "," + p[i + 1]);
+    r.setAttribute("points", pts.join(" "));
+    const t = document.createElementNS(NS, "text");
+    t.setAttribute("x", l[0]); t.setAttribute("y", l[1]); t.setAttribute("font-size", f);
+    t.textContent = "Ô" + label;
+    const tt = document.createElementNS(NS, "title");
+    g.append(tt, r, t); svg.appendChild(g);
+    nodes[n] = { g, r, tt, cell: true };
+  });
   P.geo.forEach(({ n, p, l, a, f }) => {
     const g = document.createElementNS(NS, "g"); g.setAttribute("class", "mong"); g.dataset.n = n;
     const r = document.createElementNS(NS, "polygon");
@@ -255,25 +293,25 @@ function paint() {
   for (const n in nodes) {
     const l = level(n, asof), o = nodes[n];
     o.r.setAttribute("fill", colorOf(l));
-    o.r.setAttribute("fill-opacity", l === 0 ? "0.55" : "0.72");
+    if (o.cell) o.r.setAttribute("fill-opacity", l === 0 ? "0.04" : "0.45");
+    else o.r.setAttribute("fill-opacity", l === 0 ? "0.55" : "0.72");
     o.g.classList.toggle("sel", sel.has(n));
-    o.tt.textContent = `${UC()} ${n} – ${l === 0 ? "Chưa thi công" : STEPS[l - 1].name}`;
+    o.g.classList.toggle("done", l > 0);
+    o.tt.textContent = `${itemName(n)} – ${l === 0 ? (o.cell ? "Chưa lấp đất" : "Chưa thi công") : STEPS[l - 1].name}`;
   }
   renderStats();
 }
 
-function stats(asof) {
-  const cnt = [0, 0, 0, 0, 0, 0];
-  P.geo.forEach((g) => { const l = level(g.n, asof); for (let i = 0; i < l; i++) cnt[i]++; });
-  return cnt;
-}
+function stats(asof) { return statsIn(P, data, asof).cnt; }
 function renderStats() {
-  const asof = $("asof").value, total = P.geo.length, cnt = stats(asof);
+  const asof = $("asof").value, { cnt, tot } = statsIn(P, data, asof), cs = P.cells ? (P.cellStep ?? 5) : -1;
   $("statDate").textContent = fmt(asof);
-  let h = `<tr><td>Tổng số ${U()}</td><td>${total}</td></tr>`;
+  let h = `<tr><td>Tổng số ${U()}</td><td>${P.geo.length}</td></tr>`;
+  if (P.cells) h += `<tr><td>Tổng số ô lấp đất</td><td>${P.cells.length}</td></tr>`;
   STEPS.forEach((s, i) => {
-    const p = Math.round((cnt[i] / total) * 100);
-    h += `<tr><td>${s.name}<div class="bar"><i style="width:${p}%;background:${s.color}"></i></div></td><td>${cnt[i]} (${p}%)</td></tr>`;
+    const p = tot[i] ? Math.round((cnt[i] / tot[i]) * 100) : 0;
+    const v = i === cs ? `${cnt[i]}/${tot[i]} ô (${p}%)` : `${cnt[i]} (${p}%)`;
+    h += `<tr><td>${s.name}${i === cs ? " <small class=\"muted\">(theo ô)</small>" : ""}<div class="bar"><i style="width:${p}%;background:${s.color}"></i></div></td><td>${v}</td></tr>`;
   });
   $("stats").innerHTML = h;
   updateHandle();
@@ -397,11 +435,11 @@ function updateHandle() {
   const t = $("handleText"); if (!t || !P) return;
   if (sel.size === 1 && !multi) {
     const n = [...sel][0], l = level(n, $("asof").value);
-    t.textContent = `${UC()} ${n} – ${l === 0 ? "Chưa thi công" : STEPS[l - 1].name}`;
-  } else if (sel.size > 0) t.textContent = `${sel.size} ${U()} đã chọn`;
+    t.textContent = `${itemName(n)} – ${l === 0 ? (isCell(n) ? "Chưa lấp đất" : "Chưa thi công") : STEPS[l - 1].name}`;
+  } else if (sel.size > 0) t.textContent = `${sel.size} cấu kiện đã chọn`;
   else {
-    const cnt = stats($("asof").value), tot = P.geo.length;
-    t.textContent = `Tổng hợp: ${tot} ${U()} · Đổ BT ${Math.round(cnt[4] / tot * 100)}% · Lấp đất ${Math.round(cnt[5] / tot * 100)}%`;
+    const { cnt, tot } = statsIn(P, data, $("asof").value), pc = (i) => (tot[i] ? Math.round(cnt[i] / tot[i] * 100) : 0);
+    t.textContent = `Tổng hợp: ${P.geo.length} ${U()} · Đổ BT ${pc(4)}% · Lấp đất ${pc(5)}%`;
   }
 }
 
@@ -435,16 +473,20 @@ function _renderPanel() {
 }
 
 function renderSingle(n, ro) {
-  const panel = $("panel"), r = rec(n), l = level(n, null), ed = canEdit();
-  let h = `<div class="selhead"><b>${UC()} ${esc(n)}</b><small>${l === 0 ? "Chưa thi công" : "Đã xong: " + STEPS[l - 1].name}</small></div>${ro}<div class="steps">`;
+  const panel = $("panel"), r = rec(n), l = level(n, null), ed = canEdit(), allowed = stepsFor(P, n), cell = isCell(n);
+  let h = `<div class="selhead"><b>${esc(itemName(n))}</b><small>${l === 0 ? (cell ? "Chưa lấp đất" : "Chưa thi công") : "Đã xong: " + STEPS[l - 1].name}</small></div>${ro}`;
+  if (cell) h += `<div class="note info">Ô lấp đất giữa các ${U()} – chỉ theo dõi công tác Lấp đất.</div>`;
+  else if (P.cells) h += `<div class="muted small" style="margin-bottom:8px">Lấp đất được theo dõi theo từng ô giữa các ${U()}.</div>`;
+  h += `<div class="steps">`;
   STEPS.forEach((s, i) => {
+    if (!allowed.includes(i)) return;
     const v = (r.d && r.d[i]) || "";
     h += `<div class="step"><i class="sw" style="background:${s.color};opacity:.8"></i><span>${s.name}</span>` +
       `<input type="date" data-i="${i}" value="${v}"${ed ? "" : " disabled"}>` +
       (ed ? `<button class="x" data-i="${i}" title="Xoá ngày">×</button>` : "<span></span>") + `</div>`;
   });
   h += `</div>`;
-  if (ed) h += `<div class="actions"><button class="primary" id="save" disabled>Lưu</button><button id="quick">✓ Xong công tác tiếp theo hôm nay</button></div>`;
+  if (ed) h += `<div class="actions"><button class="primary" id="save" disabled>Lưu</button><button id="quick">${cell ? "✓ Đã lấp đất hôm nay" : "✓ Xong công tác tiếp theo hôm nay"}</button></div>`;
   h += `<div class="msg" id="msg"></div>`;
   const hist = (r.h || []).slice().reverse().slice(0, 10);
   if (hist.length) {
@@ -460,33 +502,36 @@ function renderSingle(n, ro) {
   const dirty = () => { const cur = r.d || []; let ch = false; inputs.forEach((inp) => { if ((inp.value || null) !== (cur[+inp.dataset.i] || null)) ch = true; }); saveBtn.disabled = !ch; };
   inputs.forEach((inp) => { inp.oninput = dirty; inp.onchange = dirty; });
   panel.querySelectorAll(".x").forEach((b) => { b.onclick = () => { inputs[+b.dataset.i].value = ""; dirty(); }; });
-  saveBtn.onclick = () => { const nd = []; inputs.forEach((inp) => (nd[+inp.dataset.i] = inp.value || null)); saveMany([n], () => nd); };
+  saveBtn.onclick = () => { const nd = norm(r.d); inputs.forEach((inp) => (nd[+inp.dataset.i] = inp.value || null)); saveMany([n], () => nd); };
   $("quick").onclick = () => {
-    const cur = (r.d || []).slice(), nx = level(n, null);
-    if (nx >= 6) { msg(`${UC()} này đã hoàn thành tất cả công tác.`); return; }
+    const cur = norm(r.d), nx = allowed.find((i) => i >= level(n, null));
+    if (nx === undefined) { msg(`${itemName(n)} đã hoàn thành tất cả công tác.`); return; }
     cur[nx] = todayStr(); saveMany([n], () => cur);
   };
 }
 
 function renderMulti(ro) {
-  const panel = $("panel"), list = [...sel].sort((a, b) => a - b);
-  let h = `<div class="selhead"><b>${list.length} ${U()} đã chọn</b><small>bấm ${U()} để thêm / bỏ</small></div>${ro}`;
-  h += `<div class="multi"><div class="chips">${list.map((n) => `<span>${esc(n)}</span>`).join("")}</div>`;
-  if (canEdit()) {
-    h += `<label>Công tác <select id="mStep">${STEPS.map((s, i) => `<option value="${i}">${s.name}</option>`).join("")}</select></label>`;
+  const panel = $("panel"), list = [...sel].sort((a, b) => sortKey(a) - sortKey(b));
+  const allowed = ALL_STEPS.filter((i) => list.every((n) => stepsFor(P, n).includes(i)));
+  let h = `<div class="selhead"><b>${list.length} cấu kiện đã chọn</b><small>bấm để thêm / bỏ</small></div>${ro}`;
+  h += `<div class="multi"><div class="chips">${list.map((n) => `<span>${esc(isCell(n) ? "Ô " + n.slice(1) : n)}</span>`).join("")}</div>`;
+  if (canEdit() && !allowed.length) {
+    h += `<div class="note">Đang chọn lẫn ô lấp đất và ${U()}. Hãy chọn riêng từng loại để cập nhật.</div>`;
+  } else if (canEdit()) {
+    h += `<label>Công tác <select id="mStep">${allowed.map((i) => `<option value="${i}">${STEPS[i].name}</option>`).join("")}</select></label>`;
     h += `<label>Ngày hoàn thành <input type="date" id="mDate" value="${todayStr()}"></label>`;
-    h += `<div class="actions"><button class="primary" id="mSave">Cập nhật ${list.length} ${U()}</button><button id="mClear">Xoá ngày công tác này</button></div>`;
+    h += `<div class="actions"><button class="primary" id="mSave">Cập nhật ${list.length} cấu kiện</button><button id="mClear">Xoá ngày công tác này</button></div>`;
   }
   h += `<div class="msg" id="msg"></div></div>`;
   panel.innerHTML = h;
-  if (!canEdit()) return;
+  if (!canEdit() || !allowed.length) return;
   $("mSave").onclick = () => {
     const i = +$("mStep").value, d = $("mDate").value; if (!d) { msg("Chọn ngày trước."); return; }
-    saveMany(list, (n) => { const c = (rec(n).d || []).slice(); c[i] = d; return c; });
+    saveMany(list, (n) => { const c = norm(rec(n).d); c[i] = d; return c; });
   };
   $("mClear").onclick = () => {
     const i = +$("mStep").value;
-    saveMany(list, (n) => { const c = (rec(n).d || []).slice(); c[i] = null; return c; });
+    saveMany(list, (n) => { const c = norm(rec(n).d); c[i] = null; return c; });
   };
 }
 
@@ -519,7 +564,7 @@ async function saveMany(list, makeNew, via) {
   if (!fail && entries.length && !via) { sel.clear(); if (isMobile()) setSheet(false); }
   paint(); renderPanel();
   if (fail) msg("Không lưu được: " + (fail.code === "permission-denied" ? "không có quyền ghi." : fail.code || fail.message));
-  else msg(entries.length ? `Đã lưu ${entries.length} ${U()}.` : "Không có gì thay đổi.", true);
+  else msg(entries.length ? `Đã lưu ${entries.length} cấu kiện.` : "Không có gì thay đổi.", true);
   return { done: fail ? 0 : entries.length, fail };
 }
 
@@ -575,10 +620,10 @@ async function exportExcel() {
   try {
     const X = await loadXLSX(), asof = $("asof").value;
     const aoa = [[UC(), ...STEPS.map((s) => s.name), "Công tác hiện tại", "Cập nhật lần cuối", "Người cập nhật"]];
-    P.geo.map((g) => g.n).sort((a, b) => a - b).forEach((n) => {
-      const r = rec(n), l = level(n, asof);
-      aoa.push([Number(n), ...norm(r.d).map((d) => (d && d <= asof ? { t: "n", v: excelSerial(d), z: "dd/mm/yyyy" } : "")),
-        l === 0 ? "Chưa thi công" : STEPS[l - 1].name, r.at ? new Date(r.at).toLocaleString("vi-VN") : "", r.byName || ""]);
+    P.geo.map((g) => g.n).concat((P.cells || []).map((c) => c.n)).sort((a, b) => sortKey(a) - sortKey(b)).forEach((n) => {
+      const r = rec(n), l = level(n, asof), allowed = stepsFor(P, n);
+      aoa.push([isCell(n) ? "Ô " + n.slice(1) : Number(n), ...norm(r.d).map((d, i) => (d && d <= asof && allowed.includes(i) ? { t: "n", v: excelSerial(d), z: "dd/mm/yyyy" } : "")),
+        l === 0 ? (isCell(n) ? "Chưa lấp đất" : "Chưa thi công") : STEPS[l - 1].name, r.at ? new Date(r.at).toLocaleString("vi-VN") : "", r.byName || ""]);
     });
     const ws = X.utils.aoa_to_sheet(aoa);
     ws["!cols"] = [{ wch: 7 }, ...STEPS.map(() => ({ wch: 12 })), { wch: 16 }, { wch: 20 }, { wch: 22 }];
@@ -597,7 +642,6 @@ function loadScript(url, globalName) {
     document.head.appendChild(sc);
   });
 }
-function levelIn(map, n, asof) { const d = (map[n] && map[n].d) || []; for (let i = 5; i >= 0; i--) if (d[i] && (!asof || d[i] <= asof)) return i + 1; return 0; }
 
 // Vẽ mặt bằng đã tô màu + tiêu đề + bảng tổng hợp lên canvas
 async function renderPlanCanvas(prj, map, asof) {
@@ -619,9 +663,19 @@ async function renderPlanCanvas(prj, map, asof) {
   c.fillStyle = "#fff"; c.fillRect(0, 0, cv.width, cv.height);
   const img = new Image(); img.src = prj.image; await img.decode();
   c.drawImage(img, 0, head, mapW, mapH);
-  const cnt = [0, 0, 0, 0, 0, 0];
+  const { cnt, tot } = statsIn(prj, map, asof), cs = prj.cells ? (prj.cellStep ?? 5) : -1;
+  (prj.cells || []).forEach(({ n, t: label, p, l: lb, f }) => {
+    const l = levelIn(prj, map, n, asof);
+    c.beginPath(); c.moveTo(p[0] * s, head + p[1] * s);
+    for (let i = 2; i < p.length; i += 2) c.lineTo(p[i] * s, head + p[i + 1] * s);
+    c.closePath();
+    if (l) { c.globalAlpha = 0.45; c.fillStyle = colorOf(l); c.fill(); }
+    c.globalAlpha = 0.7; c.strokeStyle = "#7030A0"; c.lineWidth = 2; c.setLineDash([10, 8]); c.stroke(); c.setLineDash([]);
+    c.globalAlpha = 0.75; c.fillStyle = "#4a1d6e"; c.font = `${Math.max(14, f * s * 0.8)}px Arial`; c.textAlign = "center"; c.textBaseline = "middle";
+    c.fillText("Ô" + label, lb[0] * s, head + lb[1] * s); c.globalAlpha = 1;
+  });
   prj.geo.forEach(({ n, p, l: lb, a, f }) => {
-    const l = levelIn(map, n, asof); for (let i = 0; i < l; i++) cnt[i]++;
+    const l = levelIn(prj, map, n, asof);
     c.beginPath(); c.moveTo(p[0] * s, head + p[1] * s);
     for (let i = 2; i < p.length; i += 2) c.lineTo(p[i] * s, head + p[i + 1] * s);
     c.closePath();
@@ -637,7 +691,9 @@ async function renderPlanCanvas(prj, map, asof) {
   c.font = "34px Arial"; c.textAlign = "left";
   c.fillText(`Công trình: ${prj.congTrinh}`, 40, 130); c.fillText(`Địa điểm: ${prj.diaDiem}`, 40, 172);
   c.textAlign = "right"; c.font = "bold 38px Arial"; c.fillText(`Ngày: ${fmt(asof)}`, W - 40, 130);
-  const total = prj.geo.length, pct = (k) => `${k} (${Math.round((k / total) * 100)}%)`;
+  const total = prj.geo.length;
+  const pct = (i) => { const p = tot[i] ? Math.round((cnt[i] / tot[i]) * 100) : 0; return i === cs ? `${cnt[i]}/${tot[i]} ô (${p}%)` : `${cnt[i]} (${p}%)`; };
+  const totalTxt = prj.cells ? `${total} ${U(prj)} · ${prj.cells.length} ô` : String(total);
   c.strokeStyle = "#333"; c.lineWidth = 2;
 
   if (side) {
@@ -657,8 +713,8 @@ async function renderPlanCanvas(prj, map, asof) {
     // Tổng số
     c.font = "bold 40px Arial"; c.fillText("TỔNG HỢP", x0, y + 30); y += 60;
     c.strokeRect(x0, y, pw, 130); c.beginPath(); c.moveTo(x0, y + 62); c.lineTo(x0 + pw, y + 62); c.stroke();
-    c.textAlign = "center"; c.font = "bold 36px Arial"; c.fillText(`Tổng số ${U(prj)}`, x0 + pw / 2, y + 45);
-    c.font = "bold 44px Arial"; c.fillText(String(total), x0 + pw / 2, y + 112);
+    c.textAlign = "center"; c.font = "bold 36px Arial"; c.fillText(prj.cells ? `Tổng số ${U(prj)} / ô lấp đất` : `Tổng số ${U(prj)}`, x0 + pw / 2, y + 45);
+    c.font = "bold 44px Arial"; c.fillText(totalTxt, x0 + pw / 2, y + 112);
     y += 170;
     // Bảng công tác: tên (tô màu) | số lượng (%) + thanh tiến độ
     const rh = 92, nameW = pw * 0.48;
@@ -667,10 +723,10 @@ async function renderPlanCanvas(prj, map, asof) {
       c.globalAlpha = 0.75; c.fillStyle = st.color; c.fillRect(x0, ry, nameW, rh); c.globalAlpha = 1;
       c.strokeRect(x0, ry, pw, rh); c.beginPath(); c.moveTo(x0 + nameW, ry); c.lineTo(x0 + nameW, ry + rh); c.stroke();
       c.fillStyle = "#111"; c.textAlign = "left"; c.font = "bold 36px Arial"; c.fillText(st.name, x0 + 20, ry + 58);
-      c.textAlign = "right"; c.font = "bold 38px Arial"; c.fillText(pct(cnt[i]), x0 + pw - 20, ry + 50);
+      c.textAlign = "right"; c.font = "bold 38px Arial"; c.fillText(pct(i), x0 + pw - 20, ry + 50);
       const bx = x0 + nameW + 20, bw = pw - nameW - 40;
       c.fillStyle = "#e5e7eb"; c.fillRect(bx, ry + 66, bw, 12);
-      c.fillStyle = st.color; c.fillRect(bx, ry + 66, bw * cnt[i] / total, 12);
+      c.fillStyle = st.color; c.fillRect(bx, ry + 66, tot[i] ? bw * cnt[i] / tot[i] : 0, 12);
     });
   } else {
     const y0 = head + mapH + 24, colW = (W - 80) / 7;
@@ -679,12 +735,12 @@ async function renderPlanCanvas(prj, map, asof) {
     for (let i = 1; i < 7; i++) { c.moveTo(40 + colW * i, y0); c.lineTo(40 + colW * i, y0 + 130); }
     c.stroke();
     c.textAlign = "center"; c.fillStyle = "#111";
-    [`Tổng số ${U(prj)}`, ...STEPS.map((x) => x.name)].forEach((t, i) => {
+    [prj.cells ? "Tổng số" : `Tổng số ${U(prj)}`, ...STEPS.map((x, i) => (i === cs ? x.name + " (theo ô)" : x.name))].forEach((t, i) => {
       if (i > 0) { c.globalAlpha = 0.75; c.fillStyle = STEPS[i - 1].color; c.fillRect(40 + colW * i + 1, y0 + 1, colW - 2, 58); c.globalAlpha = 1; }
       c.fillStyle = "#111"; c.font = "bold 32px Arial"; c.fillText(t, 40 + colW * (i + 0.5), y0 + 42);
     });
     c.font = "34px Arial";
-    [String(total), ...cnt.map(pct)].forEach((t, i) => c.fillText(t, 40 + colW * (i + 0.5), y0 + 108));
+    [totalTxt, ...STEPS.map((x, i) => pct(i))].forEach((t, i) => c.fillText(t, 40 + colW * (i + 0.5), y0 + 108));
   }
   c.font = "22px Arial"; c.fillStyle = "#666"; c.textAlign = "right";
   c.fillText(`Xuất ${new Date().toLocaleString("vi-VN")} – ${me ? me.name : ""} – dangdvd.github.io/CFTN`, W - 40, cv.height - 14);
