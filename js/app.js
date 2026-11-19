@@ -451,6 +451,7 @@ function bindUI() {
 
   $("multiBtn").onclick = () => {
     multi = !multi; $("multiBtn").classList.toggle("on", multi);
+    if (multi && isMobile()) setSheet(false);
     if (!multi && sel.size > 1) { const f = [...sel][0]; sel.clear(); sel.add(f); }
     paint(); renderPanel();
   };
@@ -483,13 +484,14 @@ function bindUI() {
 }
 
 const isMobile = () => window.matchMedia("(max-width:820px)").matches;
-function setSheet(open) { $("aside").classList.toggle("open", !!open); }
+function setSheet(open) { $("aside").classList.toggle("open", !!open); updateHandle(); }
 function updateHandle() {
   const t = $("handleText"); if (!t || !P) return;
   if (sel.size === 1 && !multi) {
     const n = [...sel][0], l = level(n, $("asof").value);
     t.textContent = `${itemName(n)} – ${l === 0 ? (isCell(n) ? "Chưa lấp đất" : "Chưa thi công") : STEPS[l - 1].name}`;
-  } else if (sel.size > 0) t.textContent = `${sel.size} cấu kiện đã chọn`;
+  } else if (sel.size > 0) t.textContent = `${sel.size} cấu kiện đã chọn` + (isMobile() && !$("aside").classList.contains("open") ? " – bấm ▲ để cập nhật" : "");
+  else if (multi && isMobile()) t.textContent = "Chọn nhiều: chạm các cấu kiện cần cập nhật";
   else {
     const { cnt, tot } = statsIn(P, data, $("asof").value), pc = (i) => (tot[i] ? Math.round(cnt[i] / tot[i] * 100) : 0);
     const vs = prjSteps(P).slice(-2);
@@ -500,7 +502,8 @@ function updateHandle() {
 function clickMong(n) {
   if (multi) { sel.has(n) ? sel.delete(n) : sel.add(n); } else { sel.clear(); sel.add(n); }
   paint(); renderPanel();
-  if (isMobile()) { setSheet(true); $("aside").scrollTop = 0; }
+  // Chọn nhiều trên điện thoại: giữ ngăn kéo thu gọn để dễ chọn; bấm ▲ khi chọn xong
+  if (isMobile() && !multi) { setSheet(true); $("aside").scrollTop = 0; }
 }
 
 // ---------- Bảng bên phải ----------
