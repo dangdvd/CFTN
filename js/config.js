@@ -16,7 +16,7 @@ export const firebaseConfig = {
 // Email Google của CHỦ hệ thống (luôn có quyền Quản trị).
 // Phải TRÙNG với email ghi trong firestore.rules (hàm isOwner).
 export const OWNER_EMAILS = [
-  "owner_email@gmail.com"
+  "dangvandangdvd@gmail.com"
 ];
 
 // Phiên bản Firebase JS SDK tải từ CDN

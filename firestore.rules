@@ -15,7 +15,7 @@ service cloud.firestore {
     }
     // >>> SỬA EMAIL CHỦ HỆ THỐNG Ở ĐÂY (trùng với js/config.js) <<<
     function isOwner() {
-      return signedIn() && myEmail() in ['owner_email@gmail.com'];
+      return signedIn() && myEmail() in ['dangvandangdvd@gmail.com'];
     }
     function roleOf() {
       return get(/databases/$(database)/documents/roles/$(myEmail())).data.role;
