@@ -15,7 +15,9 @@ const XLSX_URL = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.m
 
 // ===================== Trạng thái =====================
 let be = null;            // backend (Firebase)
-let P = null;             // dự án hiện tại (data/xxx.json)
+let P = null;             // mặt bằng hiện tại (data/xxx.json)
+let PROJECTS = [];        // danh sách mặt bằng (data/projects.json)
+const projCache = {};
 let me = null;            // {uid, email, name}
 let role = null;          // viewer | editor | admin
 let data = {};            // n -> {d:[6], by, byName, at, h:[]}
@@ -62,8 +64,8 @@ function loginErr(e) {
 
 async function boot() {
   try {
-    P = await (await fetch("data/nsp.json")).json();
-  } catch (e) { gate(`<div class="err">Không tải được dữ liệu mặt bằng.</div>`); return; }
+    PROJECTS = await (await fetch("data/projects.json", { cache: "no-cache" })).json();
+  } catch (e) { gate(`<div class="err">Không tải được danh sách mặt bằng.</div>`); return; }
   try {
     be = await import("./backend.js");
   } catch (e) { gate(`<div class="err">Không tải được Firebase. Kiểm tra kết nối mạng.<br><small>${esc(e.message)}</small></div>`); return; }
@@ -98,26 +100,47 @@ function cleanup() {
 
 // ===================== Ứng dụng =====================
 let built = false;
+async function loadProject(id) {
+  const meta = PROJECTS.find((x) => x.id === id) || PROJECTS[0];
+  if (!projCache[meta.id]) projCache[meta.id] = await (await fetch(meta.file, { cache: "no-cache" })).json();
+  return projCache[meta.id];
+}
+function currentHashId() { const h = location.hash.replace("#", ""); return PROJECTS.some((x) => x.id === h) ? h : PROJECTS[0].id; }
+
+async function switchProject(id) {
+  if (unsubMong) { unsubMong(); unsubMong = null; }
+  data = {}; sel.clear(); online = false; lastMsg = null;
+  multi = false; $("multiBtn").classList.remove("on");
+  try { P = await loadProject(id); } catch (e) { setStatus("Không tải được mặt bằng", "warn"); return; }
+  if (location.hash.replace("#", "") !== P.id) history.replaceState(null, "", "#" + P.id);
+  $("projSel").value = P.id;
+  $("pTitle").textContent = P.title; $("pCT").textContent = P.congTrinh; $("pDD").textContent = P.diaDiem;
+  document.title = P.name + " – " + P.title;
+  buildMap(); requestAnimationFrame(fit);
+  paint(); renderPanel();
+  setStatus("Đang tải dữ liệu…");
+  const timer = setTimeout(() => setStatus("Chưa kết nối được dữ liệu – đang thử lại…", "warn"), 10000);
+  const pid = P.id;
+  unsubMong = be.watchMong(pid, (d, fromCache) => {
+    if (!P || P.id !== pid) return;
+    data = d;
+    if (!fromCache && !online) { clearTimeout(timer); online = true; setStatus("Trực tuyến", "ok"); }
+    if (!saving) { paint(); renderPanel(); }
+  }, (err) => { clearTimeout(timer); setStatus("Lỗi dữ liệu: " + (err.code || err.message), "warn"); });
+}
+
 function startApp() {
   $("gate").hidden = true; $("app").hidden = false;
-  $("pTitle").textContent = P.title; $("pCT").textContent = P.congTrinh; $("pDD").textContent = P.diaDiem;
-  document.title = P.title;
   $("userName").textContent = me.name;
   const b = $("roleBadge"); b.textContent = ROLE_LABEL[role]; b.className = "badge " + role;
   $("usersBtn").hidden = !isAdmin();
   document.querySelectorAll(".adm").forEach((e) => (e.hidden = !isAdmin()));
   document.querySelectorAll(".ed").forEach((e) => (e.hidden = !canEdit()));
-  if (!built) { buildMap(); bindUI(); built = true; }
-  requestAnimationFrame(fit);
-  multi = false; $("multiBtn").classList.remove("on");
-  paint(); renderPanel();
-  setStatus("Đang tải dữ liệu…");
-  const timer = setTimeout(() => setStatus("Chưa kết nối được dữ liệu – đang thử lại…", "warn"), 10000);
-  unsubMong = be.watchMong(P.id, (d, fromCache) => {
-    data = d;
-    if (!fromCache) { clearTimeout(timer); online = true; setStatus("Trực tuyến", "ok"); }
-    if (!saving) { paint(); renderPanel(); }
-  }, (err) => { clearTimeout(timer); setStatus("Lỗi dữ liệu: " + (err.code || err.message), "warn"); });
+  if (!built) {
+    $("projSel").innerHTML = PROJECTS.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join("");
+    bindUI(); built = true;
+  }
+  switchProject(currentHashId());
 }
 
 // ---------- Vẽ mặt bằng ----------
@@ -128,27 +151,29 @@ function setVB() { $("map").setAttribute("viewBox", `${vb.x} ${vb.y} ${vb.w} ${v
 
 function buildMap() {
   const svg = $("map");
+  svg.innerHTML = "";
+  for (const k in nodes) delete nodes[k];
   const img = document.createElementNS(NS, "image");
   img.setAttribute("href", P.image);
   img.setAttribute("x", 0); img.setAttribute("y", 0);
   img.setAttribute("width", P.width); img.setAttribute("height", P.height);
   img.setAttribute("preserveAspectRatio", "none");
   svg.appendChild(img);
-  P.geo.forEach(([n, x, y, w, h]) => {
+  P.geo.forEach(({ n, p, l, a, f }) => {
     const g = document.createElementNS(NS, "g"); g.setAttribute("class", "mong"); g.dataset.n = n;
-    const r = document.createElementNS(NS, "rect");
-    r.setAttribute("x", x); r.setAttribute("y", y); r.setAttribute("width", w); r.setAttribute("height", h);
+    const r = document.createElementNS(NS, "polygon");
+    const pts = []; for (let i = 0; i < p.length; i += 2) pts.push(p[i] + "," + p[i + 1]);
+    r.setAttribute("points", pts.join(" "));
     const t = document.createElementNS(NS, "text");
-    const cx = x + w / 2, cy = y + h / 2, vert = h > w * 1.4;
-    t.setAttribute("x", cx); t.setAttribute("y", cy);
-    t.setAttribute("font-size", Math.max(70, Math.min(170, (vert ? w : h) * 0.95)));
-    if (vert) t.setAttribute("transform", `rotate(-90 ${cx} ${cy})`);
+    t.setAttribute("x", l[0]); t.setAttribute("y", l[1]); t.setAttribute("font-size", f);
+    if (a) t.setAttribute("transform", `rotate(${a} ${l[0]} ${l[1]})`);
     t.textContent = n;
     const tt = document.createElementNS(NS, "title");
     g.append(tt, r, t); svg.appendChild(g);
     nodes[n] = { g, r, tt };
   });
   vb.w = P.width; vb.h = P.height; setVB();
+  if ($("legend").childElementCount) return;
   const lg = [`<span><i class="sw" style="background:#fff"></i>Chưa thi công</span>`]
     .concat(STEPS.map((s) => `<span><i class="sw" style="background:${s.color};opacity:.8"></i>${s.name}</span>`));
   $("legend").innerHTML = lg.join("");
@@ -168,7 +193,7 @@ function paint() {
 
 function stats(asof) {
   const cnt = [0, 0, 0, 0, 0, 0];
-  P.geo.forEach((g) => { const l = level(g[0], asof); for (let i = 0; i < l; i++) cnt[i]++; });
+  P.geo.forEach((g) => { const l = level(g.n, asof); for (let i = 0; i < l; i++) cnt[i]++; });
   return cnt;
 }
 function renderStats() {
@@ -241,6 +266,8 @@ function bindUI() {
   };
   $("clearSel").onclick = () => { sel.clear(); paint(); renderPanel(); };
   $("asof").onchange = paint;
+  $("projSel").onchange = () => switchProject($("projSel").value);
+  window.addEventListener("hashchange", () => { const id = currentHashId(); if (me && role && (!P || P.id !== id)) switchProject(id); });
   $("today").onclick = () => { $("asof").value = todayStr(); paint(); };
   $("logoutBtn").onclick = () => be.signOut();
   $("usersBtn").onclick = openUsers;
@@ -271,7 +298,7 @@ function _renderPanel() {
   if (sel.size === 0) {
     const emptyDb = online && Object.keys(data).length === 0;
     panel.innerHTML = `<h2>Chi tiết móng</h2>${ro}` +
-      (emptyDb && isAdmin() ? `<div class="note info">Chưa có dữ liệu. Bấm <b>⬆ Nhập từ Excel</b> và chọn file mặt bằng highlight để lấy ngày đã nhập.</div>` : "") +
+      (emptyDb && isAdmin() ? `<div class="note info">Mặt bằng này chưa có dữ liệu. Bấm <b>⬆ Nhập từ Excel</b> và chọn file có sheet <b>${esc(P.excelSheet)}</b>.</div>` : "") +
       `<div class="empty">Bấm vào một móng trên mặt bằng để xem${canEdit() ? " và nhập ngày hoàn thành từng công tác" : " ngày hoàn thành từng công tác"}.` +
       (canEdit() ? `<br><br>Muốn cập nhật cả loạt, bật <b>Chọn nhiều móng</b> rồi bấm lần lượt các móng.` : "") +
       `</div><div class="msg" id="msg"></div>`;
@@ -338,19 +365,23 @@ function renderMulti(ro) {
 }
 
 // ---------- Lưu ----------
-async function saveMany(list, makeNew, via) {
-  if (saving || !canEdit()) return { done: 0 };
-  saving = true;
-  document.querySelectorAll("#panel button").forEach((b) => (b.disabled = true));
-  msg("Đang lưu…", true);
+function makeEntries(existing, list, makeNew, via) {
   const now = new Date().toISOString(), entries = [];
   list.forEach((n) => {
-    const old = rec(n), od = norm(old.d), nd = norm(makeNew(n));
+    const old = existing[n] || { d: [], h: [] }, od = norm(old.d), nd = norm(makeNew(n));
     if (JSON.stringify(od) === JSON.stringify(nd)) return;
     const h = (old.h || []).slice();
     for (let i = 0; i < 6; i++) if (od[i] !== nd[i]) h.push({ s: STEPS[i].name, d: nd[i], by: me.uid, byName: me.name, at: now, via: via || null });
     entries.push([n, { d: nd, by: me.uid, byName: me.name, at: now, h: h.slice(-30) }]);
   });
+  return entries;
+}
+async function saveMany(list, makeNew, via) {
+  if (saving || !canEdit()) return { done: 0 };
+  saving = true;
+  document.querySelectorAll("#panel button").forEach((b) => (b.disabled = true));
+  msg("Đang lưu…", true);
+  const entries = makeEntries(data, list, makeNew, via);
   let fail = null;
   try {
     if (entries.length === 1) await be.saveMong(P.id, entries[0][0], entries[0][1]);
@@ -383,20 +414,31 @@ async function importExcel() {
   setStatus("Đang đọc file Excel…");
   try {
     const X = await loadXLSX(), wb = X.read(await f.arrayBuffer(), { type: "array" });
-    let ws = wb.Sheets[P.excelSheet];
-    if (!ws) { const nm = wb.SheetNames.find((n) => { const c = wb.Sheets[n]["AA6"]; return c && String(c.v).trim() === "Móng"; }); ws = nm && wb.Sheets[nm]; }
-    if (!ws) throw new Error(`Không thấy sheet ${P.excelSheet} (ô AA6 = "Móng")`);
-    const known = new Set(P.geo.map((g) => g[0])), rows = {}, cols = ["AD", "AE", "AF", "AG", "AH", "AI"];
-    for (let r = P.excelFirstRow; r <= 1000; r++) {
-      const c = ws["AA" + r]; if (!c || c.v === "" || c.v === undefined) continue;
-      const n = String(c.v).trim(); if (!known.has(n)) continue;
-      rows[n] = cols.map((k) => cellDate(X, ws[k + r]));
+    const targets = PROJECTS.filter((x) => wb.Sheets[x.excelSheet]);
+    if (!targets.length) throw new Error("File không có sheet nào khớp (" + PROJECTS.map((x) => x.excelSheet).join(", ") + ")");
+    const cols = ["AD", "AE", "AF", "AG", "AH", "AI"], report = [];
+    saving = true;
+    for (const meta of targets) {
+      setStatus(`Đang nhập ${meta.name}…`);
+      const prj = await loadProject(meta.id), ws = wb.Sheets[meta.excelSheet];
+      const known = new Set(prj.geo.map((g) => g.n)), rows = {};
+      for (let r = prj.excelFirstRow || 7; r <= 2000; r++) {
+        const c = ws["AA" + r]; if (!c || c.v === "" || c.v === undefined) continue;
+        const n = String(c.v).trim(); if (!known.has(n)) continue;
+        rows[n] = cols.map((k) => cellDate(X, ws[k + r]));
+      }
+      const existing = P && prj.id === P.id ? data : await be.getMongAll(prj.id);
+      const entries = makeEntries(existing, Object.keys(rows), (n) => rows[n], "Nhập từ Excel");
+      if (entries.length) await be.saveMongMany(prj.id, entries);
+      if (P && prj.id === P.id) entries.forEach(([n, d]) => (data[n] = d));
+      report.push(`${meta.name}: ${entries.length} thay đổi`);
     }
-    const list = Object.keys(rows); if (!list.length) throw new Error("Không đọc được móng nào");
-    sel.clear(); multi = false; $("multiBtn").classList.remove("on");
-    const res = await saveMany(list, (n) => rows[n], "Nhập từ Excel");
-    if (res.fail) setStatus("Nhập Excel bị lỗi", "warn"); else setStatus(`Đã nhập Excel: ${res.done} móng thay đổi`, "ok");
-  } catch (e) { setStatus("Nhập Excel lỗi: " + e.message, "warn"); }
+    saving = false; sel.clear(); paint(); renderPanel();
+    setStatus("Đã nhập Excel – " + report.join(" · "), "ok");
+  } catch (e) {
+    saving = false;
+    setStatus("Nhập Excel lỗi: " + (e.code === "permission-denied" ? "không có quyền ghi" : e.message), "warn");
+  }
 }
 
 function excelSerial(s) { const [y, m, d] = s.split("-").map(Number); return (Date.UTC(y, m - 1, d) - Date.UTC(1899, 11, 30)) / 86400000; }
@@ -404,15 +446,15 @@ async function exportExcel() {
   try {
     const X = await loadXLSX(), asof = $("asof").value;
     const aoa = [["Móng", ...STEPS.map((s) => s.name), "Công tác hiện tại", "Cập nhật lần cuối", "Người cập nhật"]];
-    P.geo.map((g) => g[0]).sort((a, b) => a - b).forEach((n) => {
+    P.geo.map((g) => g.n).sort((a, b) => a - b).forEach((n) => {
       const r = rec(n), l = level(n, asof);
       aoa.push([Number(n), ...norm(r.d).map((d) => (d && d <= asof ? { t: "n", v: excelSerial(d), z: "dd/mm/yyyy" } : "")),
         l === 0 ? "Chưa thi công" : STEPS[l - 1].name, r.at ? new Date(r.at).toLocaleString("vi-VN") : "", r.byName || ""]);
     });
     const ws = X.utils.aoa_to_sheet(aoa);
     ws["!cols"] = [{ wch: 7 }, ...STEPS.map(() => ({ wch: 12 })), { wch: 16 }, { wch: 20 }, { wch: 22 }];
-    const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, "TienDo");
-    X.writeFile(wb, `TienDo_${P.id}_${asof}.xlsx`);
+    const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, P.excelSheet.slice(0, 31));
+    X.writeFile(wb, `TienDo_${P.excelSheet}_${asof}.xlsx`);
   } catch (e) { setStatus("Xuất Excel lỗi: " + e.message, "warn"); }
 }
 
@@ -426,18 +468,19 @@ async function exportPng() {
     c.fillStyle = "#fff"; c.fillRect(0, 0, cv.width, cv.height);
     const img = new Image(); img.src = P.image; await img.decode();
     c.drawImage(img, 0, head, W, mapH);
-    P.geo.forEach(([n, x, y, w, h]) => {
+    P.geo.forEach(({ n, p, l: lb, a, f }) => {
       const l = level(n, asof);
-      c.globalAlpha = l === 0 ? 0.55 : 0.72; c.fillStyle = colorOf(l);
-      c.fillRect(x * s, head + y * s, w * s, h * s);
-      c.globalAlpha = 0.6; c.strokeStyle = "#334155"; c.lineWidth = 1.5; c.strokeRect(x * s, head + y * s, w * s, h * s);
+      c.beginPath(); c.moveTo(p[0] * s, head + p[1] * s);
+      for (let i = 2; i < p.length; i += 2) c.lineTo(p[i] * s, head + p[i + 1] * s);
+      c.closePath();
+      c.globalAlpha = l === 0 ? 0.55 : 0.72; c.fillStyle = colorOf(l); c.fill();
+      c.globalAlpha = 0.6; c.strokeStyle = "#334155"; c.lineWidth = 1.5; c.stroke();
       c.globalAlpha = 1; c.fillStyle = "#0f172a";
-      const vert = h > w * 1.4, fs = Math.max(70, Math.min(170, (vert ? w : h) * 0.95)) * s;
-      c.font = `bold ${fs}px Arial`; c.textAlign = "center"; c.textBaseline = "middle";
-      c.save(); c.translate((x + w / 2) * s, head + (y + h / 2) * s); if (vert) c.rotate(-Math.PI / 2); c.fillText(n, 0, 0); c.restore();
+      c.font = `bold ${f * s}px Arial`; c.textAlign = "center"; c.textBaseline = "middle";
+      c.save(); c.translate(lb[0] * s, head + lb[1] * s); if (a) c.rotate((a * Math.PI) / 180); c.fillText(n, 0, 0); c.restore();
     });
     c.fillStyle = "#111"; c.textAlign = "center"; c.textBaseline = "alphabetic";
-    c.font = "bold 56px Arial"; c.fillText(P.title, W / 2, 70);
+    c.font = "bold 56px Arial"; c.fillText(P.title + " – " + P.kind.toUpperCase(), W / 2, 70);
     c.font = "34px Arial"; c.textAlign = "left";
     c.fillText(`Công trình: ${P.congTrinh}`, 40, 125); c.fillText(`Địa điểm: ${P.diaDiem}`, 40, 160);
     c.textAlign = "right"; c.fillText(`Ngày: ${fmt(asof)}`, W - 40, 125);
@@ -447,7 +490,7 @@ async function exportPng() {
     c.font = "32px Arial";
     [String(total), ...cnt.map((k) => `${k} (${Math.round((k / total) * 100)}%)`)].forEach((t, i) => c.fillText(t, 40 + colW * (i + 0.5), y0 + 85));
     STEPS.forEach((st, i) => { c.fillStyle = st.color; c.fillRect(40 + colW * (i + 1) + 20, y0 + 100, colW - 40, 10); });
-    const a = document.createElement("a"); a.download = `MatBang_${P.id}_${asof}.png`; a.href = cv.toDataURL("image/png"); a.click();
+    const a = document.createElement("a"); a.download = `MatBang_${P.excelSheet}_${asof}.png`; a.href = cv.toDataURL("image/png"); a.click();
   } catch (e) { setStatus("Xuất ảnh lỗi: " + e.message, "warn"); }
 }
 

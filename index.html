@@ -35,13 +35,15 @@
   </header>
 
   <div class="toolbar">
+    <label>Mặt bằng <select id="projSel" class="projsel"></select></label>
+    <span class="sep"></span>
     <label>Xem tiến độ đến ngày <input type="date" id="asof"></label>
     <button id="today">Hôm nay</button>
     <span class="sep"></span>
     <button id="multiBtn" class="ed" title="Bấm lần lượt nhiều móng rồi cập nhật cùng lúc">Chọn nhiều móng</button>
     <button id="clearSel">Bỏ chọn</button>
     <span class="sep"></span>
-    <button id="impBtn" class="adm" hidden title="Đọc ngày ở cột AD:AI của sheet NSP_DaKieng">⬆ Nhập từ Excel</button>
+    <button id="impBtn" class="adm" hidden title="Chọn file Excel highlight – tự nhận các sheet NSP_Mong, NSP_DaKieng, NKho_Mong, NKho_DaKieng">⬆ Nhập từ Excel</button>
     <input type="file" id="impFile" accept=".xlsx,.xlsm,.xls" hidden>
     <button id="expBtn" title="Tải bảng ngày hoàn thành ra file Excel">⬇ Xuất Excel</button>
     <button id="pngBtn" title="Tải ảnh mặt bằng đã tô màu để gửi báo cáo">🖼 Xuất ảnh</button>

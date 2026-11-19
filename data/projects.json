@@ -1,7 +1,26 @@
 [
  {
   "id": "nsp",
-  "name": "Móng nhà sấy phun (NSP)",
-  "file": "data/nsp.json"
+  "name": "Nhà sấy phun – Đà kiềng",
+  "file": "data/nsp.json",
+  "excelSheet": "NSP_DaKieng"
+ },
+ {
+  "id": "nsp-mong",
+  "name": "Nhà sấy phun – Móng",
+  "file": "data/nsp-mong.json",
+  "excelSheet": "NSP_Mong"
+ },
+ {
+  "id": "nk-mong",
+  "name": "Nhà kho – Móng",
+  "file": "data/nk-mong.json",
+  "excelSheet": "NKho_Mong"
+ },
+ {
+  "id": "nk-dakieng",
+  "name": "Nhà kho – Đà kiềng",
+  "file": "data/nk-dakieng.json",
+  "excelSheet": "NKho_DaKieng"
  }
 ]

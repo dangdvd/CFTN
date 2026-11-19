@@ -7,7 +7,8 @@ Chạy trên **GitHub Pages** (miễn phí), dữ liệu và đăng nhập dùng
 - 3 quyền: **Chỉ xem** · **Cập nhật** · **Quản trị**
 - Bấm vào móng để nhập ngày hoàn thành 6 công tác (Đào đất → Lấp đất), màu tự đổi, bảng tổng hợp tự tính
 - Chọn nhiều móng để cập nhật một lúc; xem mặt bằng tại một ngày bất kỳ; lịch sử ai sửa gì
-- Nhập từ Excel (sheet `NSP_DaKieng`, cột AA = Móng, AD:AI = ngày) · Xuất Excel · Xuất ảnh PNG
+- 4 mặt bằng: **Nhà sấy phun** (Móng, Đà kiềng) và **Nhà kho** (Móng, Đà kiềng) – chọn ở ô *Mặt bằng*, link riêng từng mặt bằng: `#nsp-mong`, `#nsp`, `#nk-mong`, `#nk-dakieng`
+- Nhập từ Excel: chọn file highlight, app tự nhận các sheet `NSP_Mong`, `NSP_DaKieng`, `NKho_Mong`, `NKho_DaKieng` (cột AA = Móng, AD:AI = ngày) · Xuất Excel · Xuất ảnh PNG
 - Cập nhật thời gian thực giữa nhiều người, dùng được trên điện thoại
 
 ## Cài đặt lần đầu
@@ -30,7 +31,7 @@ Repo → **Settings → Pages → Build and deployment → Source: Deploy from a
 Sau 1–2 phút trang chạy tại: **https://dangdvd.github.io/CFTN/**
 
 ### 4. Nạp dữ liệu
-Đăng nhập bằng email chủ → **⬆ Nhập từ Excel** → chọn file `TNL_Mat bang highlight NSP.xlsx`.
+Đăng nhập bằng email chủ → **⬆ Nhập từ Excel** → chọn `TNL_Mat bang highlight NSP.xlsx`, rồi làm lại với `TNL_Mat bang highlight NK.xlsx`. Mỗi file nạp cả 2 sheet.
 
 ### 5. Thêm người dùng
 **👥 Người dùng** → nhập email Google + chọn quyền → **Thêm**. Người đó mở link và đăng nhập đúng email là dùng được.
@@ -43,13 +44,14 @@ Sau 1–2 phút trang chạy tại: **https://dangdvd.github.io/CFTN/**
 | `js/app.js` | Logic: vẽ mặt bằng, tô màu, cập nhật, Excel, quản lý người dùng |
 | `js/backend.js` | Kết nối Firebase (Auth + Firestore) |
 | `js/config.js` | Cấu hình Firebase, email chủ |
-| `data/nsp.json` | Thông tin công trình + toạ độ 124 móng (lấy từ shape trong Excel) |
-| `data/nsp-plan.png` | Ảnh nền mặt bằng |
+| `data/projects.json` | Danh sách mặt bằng |
+| `data/<id>.json` | Thông tin mặt bằng + đa giác từng móng (lấy từ shape trong Excel, kể cả shape xoay / vẽ tự do) |
+| `data/<id>-plan.png` | Ảnh nền mặt bằng |
 | `firestore.rules` | Phân quyền phía server |
 
 Dữ liệu trên Firestore:
 - `roles/{email}` – `{role: viewer|editor|admin, name}`
-- `projects/nsp/mong/m{số móng}` – `{d: [6 ngày yyyy-mm-dd | null], by, byName, at, h: [lịch sử]}`
+- `projects/{id}/mong/m{số móng}` (id: `nsp`, `nsp-mong`, `nk-mong`, `nk-dakieng`) – `{d: [6 ngày yyyy-mm-dd | null], by, byName, at, h: [lịch sử]}`
 
 Màu: Đào đất `#908700` · Bê tông lót `#00B0F0` · Cốt thép `#C00000` · Cốp pha `#FFC000` · Đổ bê tông `#00B050` · Lấp đất `#7030A0`.
 Một móng hiển thị màu của công tác **sau cùng** đã có ngày (giống công thức cột Z trong Excel).

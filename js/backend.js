@@ -60,6 +60,13 @@ export function watchMong(projectId, cb, err) {
   }, err);
 }
 
+export async function getMongAll(projectId) {
+  const snap = await F.getDocs(F.collection(db, "projects", projectId, "mong"));
+  const out = {};
+  snap.docs.forEach((d) => { out[d.id.replace(/^m/, "")] = d.data(); });
+  return out;
+}
+
 export function saveMong(projectId, n, data) {
   return F.setDoc(F.doc(db, "projects", projectId, "mong", "m" + n), data);
 }
