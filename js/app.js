@@ -290,7 +290,9 @@ const remapList = (prj) => (prj && prj.remap ? [].concat(prj.remap) : []);
 function remapStage(R, d) {
   const out = {}, keys = [];
   for (let i = 1; i <= R.keys.g; i++) keys.push(String(i));
-  for (let i = 1; i <= (R.keys.c || 0); i++) keys.push("O" + i);
+  const ck = new Set(Object.keys(d).concat(Object.keys(R.src)).filter((k) => k[0] === "O"));
+  for (let i = 1; i <= (R.keys.c || 0); i++) ck.add("O" + i);
+  keys.push(...ck);
   keys.forEach((n) => {
     const cand = R.src[n] || [n];
     const k = R.upto && R.upto[n];
@@ -744,8 +746,10 @@ async function importExcel() {
       const known = new Set(prj.geo.map((g) => g.n)), rows = {};
       for (let r = prj.excelFirstRow || 7; r <= 2000; r++) {
         const c = ws["AA" + r]; if (!c || c.v === "" || c.v === undefined) continue;
-        const n = String(c.v).trim(); if (!known.has(n)) continue;
-        rows[n] = cols.map((k) => cellDate(X, ws[k + r]));
+        const n0 = String(c.v).trim();
+        // excelMap: số shape trong file Excel cũ → số cấu kiện mới (khi mặt bằng đã chia/đánh số lại)
+        const ns = prj.excelMap ? prj.excelMap[n0] || [] : [n0];
+        ns.forEach((n) => { if (known.has(n)) rows[n] = cols.map((k) => cellDate(X, ws[k + r])); });
       }
       const existing = P && prj.id === P.id ? data : remapData(prj, await be.getMongAll(prj.id));
       const entries = makeEntries(existing, Object.keys(rows), (n) => rows[n], "Nhập từ Excel");
