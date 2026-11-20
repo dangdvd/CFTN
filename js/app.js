@@ -77,7 +77,19 @@ function cellLabel(n, prj) {
   if (!prj._cl) { prj._cl = {}; (prj.cells || []).forEach((c) => (prj._cl[c.n] = c.t)); }
   return prj._cl[n] || n.slice(1);
 }
-function itemName(n, prj) { return isCell(n) ? `O${cellLabel(n, prj)}` : `${UC(prj)} ${n}`; }
+// Cấu kiện có thể có tên hiển thị riêng (g.t, vd "GB1-1", "V3") và loại riêng (g.u, vd "vách")
+function geoOf(n, prj) {
+  prj = prj || P;
+  if (!prj._g) { prj._g = {}; prj.geo.forEach((g) => (prj._g[g.n] = g)); }
+  return prj._g[n] || {};
+}
+const geoLabel = (n, prj) => geoOf(n, prj).t || n;
+const shortLabel = (n, prj) => (isCell(n) ? "O" + cellLabel(n, prj) : geoLabel(n, prj));
+function itemName(n, prj) {
+  if (isCell(n)) return `O${cellLabel(n, prj)}`;
+  const g = geoOf(n, prj), u = g.u || U(prj);
+  return `${u.charAt(0).toUpperCase() + u.slice(1)} ${g.t || n}`;
+}
 const sortKey = (n) => (isCell(n) ? 100000 + Number(cellLabel(n)) : Number(n));
 // Đường SVG cho ô có nhiều vòng (vòng ngoài + lỗ móng), tô theo evenodd
 function ringsPath(rings) {
@@ -225,7 +237,7 @@ function cleanup() {
 let built = false;
 // Tên mặt bằng dạng "Nhà … – Móng" → [nhà, loại mặt bằng]
 function splitName(n) { const i = n.lastIndexOf(" – "); return i < 0 ? [n, ""] : [n.slice(0, i), n.slice(i + 3)]; }
-const KIND_ORDER = ["Móng", "Đà kiềng", "Cổ cột", "Cột tầng 1"];
+const KIND_ORDER = ["Móng", "Móng bể nước", "Đà kiềng", "Cổ cột", "Cột tầng 1", "Vách tầng 1"];
 function plansOf(h) {
   return PROJECTS.filter((x) => splitName(x.name)[0] === h)
     .sort((a, b) => KIND_ORDER.indexOf(splitName(a.name)[1]) - KIND_ORDER.indexOf(splitName(b.name)[1]));
@@ -315,7 +327,7 @@ function buildMap() {
     g.append(tt, r, t); svg.appendChild(g);
     nodes[n] = { g, r, tt, cell: true };
   });
-  P.geo.forEach(({ n, p, l, a, f }) => {
+  P.geo.forEach(({ n, t: lbl, p, l, a, f }) => {
     const g = document.createElementNS(NS, "g"); g.setAttribute("class", "mong"); g.dataset.n = n;
     const r = document.createElementNS(NS, "polygon");
     const pts = []; for (let i = 0; i < p.length; i += 2) pts.push(p[i] + "," + p[i + 1]);
@@ -323,7 +335,7 @@ function buildMap() {
     const t = document.createElementNS(NS, "text");
     t.setAttribute("x", l[0]); t.setAttribute("y", l[1]); t.setAttribute("font-size", f);
     if (a) t.setAttribute("transform", `rotate(${a} ${l[0]} ${l[1]})`);
-    t.textContent = n;
+    t.textContent = lbl || n;
     const tt = document.createElementNS(NS, "title");
     g.append(tt, r, t); svg.appendChild(g);
     nodes[n] = { g, r, tt };
@@ -580,7 +592,7 @@ function renderMulti(ro) {
   const panel = $("panel"), list = [...sel].sort((a, b) => sortKey(a) - sortKey(b));
   const allowed = ALL_STEPS.filter((i) => list.every((n) => stepsFor(P, n).includes(i)));
   let h = `<div class="selhead"><b>${list.length} cấu kiện đã chọn</b><small>bấm để thêm / bỏ</small></div>${ro}`;
-  h += `<div class="multi"><div class="chips">${list.map((n) => `<span>${esc(isCell(n) ? "O" + cellLabel(n) : n)}</span>`).join("")}</div>`;
+  h += `<div class="multi"><div class="chips">${list.map((n) => `<span>${esc(shortLabel(n))}</span>`).join("")}</div>`;
   if (canEdit() && !allowed.length) {
     h += `<div class="note">Đang chọn lẫn ô lấp đất và ${U()}. Hãy chọn riêng từng loại để cập nhật.</div>`;
   } else if (canEdit()) {
@@ -702,13 +714,14 @@ async function exportExcel() {
     const aoa = [[UC(), ...VS.map((i) => STEPS[i].name), "Công tác hiện tại", "Cập nhật lần cuối", "Người cập nhật"]];
     P.geo.map((g) => g.n).concat((P.cells || []).map((c) => c.n)).sort((a, b) => sortKey(a) - sortKey(b)).forEach((n) => {
       const r = rec(n), l = level(n, asof), allowed = stepsFor(P, n);
-      aoa.push([isCell(n) ? "O" + cellLabel(n) : Number(n), ...VS.map((i) => norm(r.d)[i]).map((d, k) => (d && d <= asof && allowed.includes(VS[k]) ? { t: "n", v: excelSerial(d), z: "dd/mm/yyyy" } : "")),
+      aoa.push([isCell(n) ? "O" + cellLabel(n) : (geoOf(n).u ? itemName(n) : geoOf(n).t || Number(n)), ...VS.map((i) => norm(r.d)[i]).map((d, k) => (d && d <= asof && allowed.includes(VS[k]) ? { t: "n", v: excelSerial(d), z: "dd/mm/yyyy" } : "")),
         l === 0 ? (isCell(n) ? "Chưa lấp đất" : "Chưa thi công") : STEPS[l - 1].name, r.at ? new Date(r.at).toLocaleString("vi-VN") : "", r.byName || ""]);
     });
     const ws = X.utils.aoa_to_sheet(aoa);
-    ws["!cols"] = [{ wch: 7 }, ...VS.map(() => ({ wch: 12 })), { wch: 16 }, { wch: 20 }, { wch: 22 }];
-    const wb = X.utils.book_new(); X.utils.book_append_sheet(wb, ws, P.excelSheet.slice(0, 31));
-    X.writeFile(wb, `TienDo_${P.excelSheet}_${asof}.xlsx`);
+    ws["!cols"] = [{ wch: P.geo.some((g) => g.t || g.u) ? 14 : 7 }, ...VS.map(() => ({ wch: 12 })), { wch: 16 }, { wch: 20 }, { wch: 22 }];
+    const wb = X.utils.book_new(); const sh = P.excelSheet || P.id;
+    X.utils.book_append_sheet(wb, ws, sh.slice(0, 31));
+    X.writeFile(wb, `TienDo_${sh}_${asof}.xlsx`);
   } catch (e) { setStatus("Xuất Excel lỗi: " + e.message, "warn"); }
 }
 
@@ -753,7 +766,7 @@ async function renderPlanCanvas(prj, map, asof) {
     c.globalAlpha = 0.75; c.fillStyle = "#4a1d6e"; c.font = `${Math.max(14, f * s * 0.8)}px Arial`; c.textAlign = "center"; c.textBaseline = "middle";
     c.fillText("O" + label, lb[0] * s, head + lb[1] * s); c.globalAlpha = 1;
   });
-  prj.geo.forEach(({ n, p, l: lb, a, f }) => {
+  prj.geo.forEach(({ n, t: lbl, p, l: lb, a, f }) => {
     const l = levelIn(prj, map, n, asof);
     c.beginPath(); c.moveTo(p[0] * s, head + p[1] * s);
     for (let i = 2; i < p.length; i += 2) c.lineTo(p[i] * s, head + p[i + 1] * s);
@@ -762,7 +775,7 @@ async function renderPlanCanvas(prj, map, asof) {
     c.globalAlpha = 0.6; c.strokeStyle = "#334155"; c.lineWidth = 1.5; c.stroke();
     c.globalAlpha = 1; c.fillStyle = "#0f172a";
     c.font = `bold ${Math.max(14, f * s)}px Arial`; c.textAlign = "center"; c.textBaseline = "middle";
-    c.save(); c.translate(lb[0] * s, head + lb[1] * s); if (a) c.rotate((a * Math.PI) / 180); c.fillText(n, 0, 0); c.restore();
+    c.save(); c.translate(lb[0] * s, head + lb[1] * s); if (a) c.rotate((a * Math.PI) / 180); c.fillText(lbl || n, 0, 0); c.restore();
   });
   // Tiêu đề
   c.fillStyle = "#111"; c.textAlign = "center"; c.textBaseline = "alphabetic";

@@ -81,6 +81,26 @@
   "excelSheet": "NPT1"
  },
  {
+  "id": "npt1-mongbn",
+  "name": "Nhà phụ trợ 1 – Móng bể nước",
+  "file": "data/npt1-mongbn.json"
+ },
+ {
+  "id": "npt1-dakieng",
+  "name": "Nhà phụ trợ 1 – Đà kiềng",
+  "file": "data/npt1-dakieng.json"
+ },
+ {
+  "id": "npt1-cocot",
+  "name": "Nhà phụ trợ 1 – Cổ cột",
+  "file": "data/npt1-cocot.json"
+ },
+ {
+  "id": "npt1-vach1",
+  "name": "Nhà phụ trợ 1 – Vách tầng 1",
+  "file": "data/npt1-vach1.json"
+ },
+ {
   "id": "npt2-mong",
   "name": "Nhà phụ trợ 2 – Móng",
   "file": "data/npt2-mong.json",
