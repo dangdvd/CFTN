@@ -53,6 +53,10 @@ main{flex:1;display:flex;min-height:0}
 #mapwrap{flex:1;position:relative;min-width:0;background:#fff;overflow:hidden;touch-action:none}
 #map{width:100%;height:100%;display:block;cursor:grab;user-select:none;-webkit-user-select:none}
 #map.dragging{cursor:grabbing}
+#map.boxmode{cursor:crosshair}
+#selbox{pointer-events:none;stroke-width:1.5px}
+#selbox.win{fill:rgba(30,110,255,.12);stroke:#1e6eff}
+#selbox.cross{fill:rgba(20,170,60,.12);stroke:#14aa3c;stroke-dasharray:6 4}
 .mong{cursor:pointer}
 .mong polygon{stroke:#334155;stroke-width:6;stroke-opacity:.55}
 .mong:hover polygon{stroke:#0f172a;stroke-opacity:1;stroke-width:12}

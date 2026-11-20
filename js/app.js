@@ -26,7 +26,7 @@ let me = null;            // {uid, email, name}
 let role = null;          // viewer | editor | admin
 let data = {};            // n -> {d:[6], by, byName, at, h:[]}
 const sel = new Set();
-let multi = false;
+let multi = false, boxMode = false;
 let saving = false;
 let online = false;
 let unsubMong = null, unsubRoles = null;
@@ -259,7 +259,7 @@ function currentHashId() { const h = location.hash.replace("#", ""); return PROJ
 async function switchProject(id) {
   if (unsubMong) { unsubMong(); unsubMong = null; }
   data = {}; sel.clear(); online = false; lastMsg = null;
-  multi = false; $("multiBtn").classList.remove("on"); setSheet(false);
+  multi = false; setBox(false); $("multiBtn").classList.remove("on"); setSheet(false);
   try { P = await loadProject(id); } catch (e) { setStatus("Không tải được mặt bằng", "warn"); return; }
   if (location.hash.replace("#", "") !== P.id) history.replaceState(null, "", "#" + P.id);
   syncSelectors(P.id);
@@ -464,9 +464,13 @@ function bindUI() {
   // Mỗi khi số ngón thay đổi, gesture được đặt lại từ vị trí hiện tại → không bị nhảy khi nhấc 1 ngón.
   const ptrs = new Map(); let moved = false, gest = null;
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
-  function resetGesture() {
+  function resetGesture(e) {
     const a = [...ptrs.values()];
-    if (a.length === 1) gest = { type: "pan", x: a[0].x, y: a[0].y, vx: vb.x, vy: vb.y };
+    hideBox();
+    // Quét chọn: bật nút "Quét chọn", hoặc giữ Ctrl/Shift khi kéo chuột (Alt = bỏ chọn)
+    if (a.length === 1 && e && e.type === "pointerdown" && canEdit() && (boxMode || (e.pointerType === "mouse" && (e.ctrlKey || e.shiftKey))))
+      gest = { type: "box", x: a[0].x, y: a[0].y, rm: e.altKey };
+    else if (a.length === 1) gest = { type: "pan", x: a[0].x, y: a[0].y, vx: vb.x, vy: vb.y };
     else if (a.length >= 2) gest = { type: "pinch", d: dist(a[0], a[1]), mx: (a[0].x + a[1].x) / 2, my: (a[0].y + a[1].y) / 2 };
     else gest = null;
   }
@@ -475,7 +479,7 @@ function bindUI() {
     if (ptrs.size === 0) moved = false;
     ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (ptrs.size >= 2) moved = true;
-    resetGesture();
+    resetGesture(e);
   });
   svg.addEventListener("pointermove", (e) => {
     if (!ptrs.has(e.pointerId) || !gest) return;
@@ -490,6 +494,11 @@ function bindUI() {
       gest.d = d; gest.mx = mx; gest.my = my;
       return;
     }
+    if (gest.type === "box") {
+      if (!moved && Math.hypot(e.clientX - gest.x, e.clientY - gest.y) > 6) moved = true;
+      if (moved) drawBox(gest, e.clientX, e.clientY);
+      return;
+    }
     if (gest.type === "pan") {
       const dx = e.clientX - gest.x, dy = e.clientY - gest.y;
       if (!moved && Math.hypot(dx, dy) > 6) { moved = true; svg.classList.add("dragging"); }
@@ -499,6 +508,7 @@ function bindUI() {
   const endPtr = (e) => {
     if (!ptrs.has(e.pointerId)) return;
     const tap = ptrs.size === 1 && !moved && e.type === "pointerup";
+    if (gest && gest.type === "box" && moved && ptrs.size === 1 && e.type === "pointerup") boxSelect(gest, e.clientX, e.clientY);
     ptrs.delete(e.pointerId);
     if (tap) {
       const el = document.elementFromPoint(e.clientX, e.clientY), g = el && el.closest && el.closest(".mong");
@@ -518,8 +528,13 @@ function bindUI() {
     if (now - lastTap < 300) { zoomAt(2, e.clientX, e.clientY); lastTap = 0; } else lastTap = now;
   });
 
+  $("boxBtn").onclick = () => {
+    setBox(!boxMode);
+    if (boxMode && !multi) { multi = true; $("multiBtn").classList.add("on"); if (isMobile()) setSheet(false); paint(); renderPanel(); }
+  };
   $("multiBtn").onclick = () => {
     multi = !multi; $("multiBtn").classList.toggle("on", multi);
+    if (!multi) setBox(false);
     if (multi && isMobile()) setSheet(false);
     if (!multi && sel.size > 1) { const f = [...sel][0]; sel.clear(); sel.add(f); }
     paint(); renderPanel();
@@ -552,6 +567,69 @@ function bindUI() {
   document.addEventListener("click", (e) => { if (!e.target.closest || !e.target.closest(".pdfwrap")) closePdfMenu(); });
 }
 
+// ---------- Quét chọn kiểu AutoCAD ----------
+// Kéo trái → phải (khung liền xanh dương): chọn cấu kiện nằm trọn trong khung (Window).
+// Kéo phải → trái (khung nét đứt xanh lá): chọn cấu kiện chạm khung (Crossing).
+function setBox(on) {
+  boxMode = !!on;
+  const b = $("boxBtn"); if (b) b.classList.toggle("on", boxMode);
+  $("map").classList.toggle("boxmode", boxMode);
+  updateHandle();
+}
+function toSvgPt(cx, cy) {
+  const r = $("map").getBoundingClientRect();
+  return { x: vb.x + ((cx - r.left) / r.width) * vb.w, y: vb.y + ((cy - r.top) / r.height) * vb.h };
+}
+function hideBox() { const b = document.getElementById("selbox"); if (b) b.remove(); }
+function drawBox(g, cx, cy) {
+  const svg = $("map"); let b = document.getElementById("selbox");
+  if (!b) { b = document.createElementNS(NS, "rect"); b.id = "selbox"; b.setAttribute("vector-effect", "non-scaling-stroke"); svg.appendChild(b); }
+  const a = toSvgPt(g.x, g.y), c = toSvgPt(cx, cy), cross = cx < g.x;
+  b.setAttribute("x", Math.min(a.x, c.x)); b.setAttribute("y", Math.min(a.y, c.y));
+  b.setAttribute("width", Math.abs(c.x - a.x)); b.setAttribute("height", Math.abs(c.y - a.y));
+  b.setAttribute("class", cross ? "cross" : "win");
+}
+function polysOf(n) {
+  if (isCell(n)) { const c = (P.cells || []).find((q) => q.n === n); return c ? [c.r[0]] : []; }
+  const g = geoOf(n); return g.p ? [g.p] : [];
+}
+function inPoly(x, y, p) {
+  let ins = false;
+  for (let i = 0, j = p.length - 2; i < p.length; j = i, i += 2) {
+    const xi = p[i], yi = p[i + 1], xj = p[j], yj = p[j + 1];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) ins = !ins;
+  }
+  return ins;
+}
+function segX(a, b, c, d) {
+  const o = (p, q, r) => Math.sign((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x));
+  return o(a, b, c) !== o(a, b, d) && o(c, d, a) !== o(c, d, b);
+}
+function polyHit(p, R, cross) {
+  const pts = []; for (let i = 0; i < p.length; i += 2) pts.push({ x: p[i], y: p[i + 1] });
+  const inR = (q) => q.x >= R.x0 && q.x <= R.x1 && q.y >= R.y0 && q.y <= R.y1;
+  if (!cross) return pts.every(inR);
+  if (pts.some(inR)) return true;
+  const rc = [{ x: R.x0, y: R.y0 }, { x: R.x1, y: R.y0 }, { x: R.x1, y: R.y1 }, { x: R.x0, y: R.y1 }];
+  if (rc.some((q) => inPoly(q.x, q.y, p))) return true;
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    for (let k = 0; k < 4; k++) if (segX(a, b, rc[k], rc[(k + 1) % 4])) return true;
+  }
+  return false;
+}
+function boxSelect(g, cx, cy) {
+  hideBox();
+  const a = toSvgPt(g.x, g.y), c = toSvgPt(cx, cy), cross = cx < g.x;
+  const R = { x0: Math.min(a.x, c.x), x1: Math.max(a.x, c.x), y0: Math.min(a.y, c.y), y1: Math.max(a.y, c.y) };
+  const ids = P.geo.map((q) => q.n).concat((P.cells || []).map((q) => q.n));
+  const hit = ids.filter((n) => polysOf(n).some((p) => polyHit(p, R, cross)));
+  if (!multi) { multi = true; $("multiBtn").classList.add("on"); }
+  hit.forEach((n) => (g.rm ? sel.delete(n) : sel.add(n)));
+  paint(); renderPanel();
+  if (hit.length) msg(`${g.rm ? "Bỏ chọn" : "Đã chọn thêm"} ${hit.length} cấu kiện (${cross ? "chạm khung" : "nằm trọn trong khung"})`, true);
+}
+
 const isMobile = () => window.matchMedia("(max-width:820px)").matches;
 function setSheet(open) { $("aside").classList.toggle("open", !!open); updateHandle(); }
 function updateHandle() {
@@ -560,6 +638,7 @@ function updateHandle() {
     const n = [...sel][0], l = level(n, $("asof").value);
     t.textContent = `${itemName(n)} – ${l === 0 ? (isCell(n) ? "Chưa lấp đất" : "Chưa thi công") : STEPS[l - 1].name}`;
   } else if (sel.size > 0) t.textContent = `${sel.size} cấu kiện đã chọn` + (isMobile() && !$("aside").classList.contains("open") ? " – bấm ▲ để cập nhật" : "");
+  else if (boxMode && isMobile()) t.textContent = "Quét chọn: kéo 1 ngón để quét, 2 ngón để di chuyển";
   else if (multi && isMobile()) t.textContent = "Chọn nhiều: chạm các cấu kiện cần cập nhật";
   else {
     const { cnt, tot } = statsIn(P, data, $("asof").value), pc = (i) => (tot[i] ? Math.round(cnt[i] / tot[i] * 100) : 0);
@@ -590,7 +669,7 @@ function _renderPanel() {
     panel.innerHTML = `<h2>Chi tiết ${U()}</h2>${ro}` +
       (emptyDb && isAdmin() ? `<div class="note info">Mặt bằng này chưa có dữ liệu. Bấm <b>⬆ Nhập từ Excel</b> và chọn file có sheet <b>${esc(P.excelSheet)}</b>.</div>` : "") +
       `<div class="empty">Bấm vào một ${U()} trên mặt bằng để xem${canEdit() ? " và nhập ngày hoàn thành từng công tác" : " ngày hoàn thành từng công tác"}.` +
-      (canEdit() ? `<br><br>Muốn cập nhật cả loạt, bật <b>Chọn nhiều</b> rồi bấm lần lượt các ${U()}.` : "") +
+      (canEdit() ? `<br><br>Muốn cập nhật cả loạt, bật <b>Chọn nhiều</b> rồi bấm lần lượt các ${U()}, hoặc bật <b>Quét chọn</b> rồi kéo khung như AutoCAD: kéo <b>trái → phải</b> chọn cấu kiện nằm trọn trong khung, kéo <b>phải → trái</b> chọn cấu kiện chạm khung. Trên máy tính có thể giữ <b>Ctrl</b> (hoặc Shift) rồi kéo chuột; giữ thêm <b>Alt</b> để bỏ chọn.` : "") +
       `</div><div class="msg" id="msg"></div>`;
     return;
   }
