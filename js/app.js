@@ -274,10 +274,46 @@ async function switchProject(id) {
   const pid = P.id;
   unsubMong = be.watchMong(pid, (d, fromCache) => {
     if (!P || P.id !== pid) return;
-    data = d;
+    data = remapData(P, d);
+    if (!fromCache) migrateRemap(d);
     if (!fromCache && !online) { clearTimeout(timer); online = true; setStatus("Trực tuyến", "ok"); }
     if (!saving) { paint(); renderPanel(); }
   }, (err) => { clearTimeout(timer); setStatus("Lỗi dữ liệu: " + (err.code || err.message), "warn"); });
+}
+
+// ---------- Đánh số lại cấu kiện ----------
+// prj.remap = {id, src:{sốMới:[sốCũ ưu tiên, sốCũ dự phòng]}}. Khi chưa chuyển dữ liệu, hiển thị theo số mới
+// bằng cách lấy dữ liệu từ số cũ; người có quyền cập nhật mở mặt bằng sẽ chuyển hẳn dữ liệu 1 lần (kèm dấu "_id").
+function remapData(prj, d) {
+  const R = prj && prj.remap;
+  if (!R || d["_" + R.id]) return d;
+  const out = {};
+  prj.geo.map((g) => g.n).concat((prj.cells || []).map((c) => c.n)).forEach((n) => {
+    const cand = R.src[n] || [n];
+    const s = cand.find((k) => d[k] && norm(d[k].d).some(Boolean));
+    if (s !== undefined) out[n] = d[s];
+  });
+  return out;
+}
+let migrating = false;
+async function migrateRemap(raw) {
+  const R = P && P.remap, pid = P && P.id;
+  if (!R || raw["_" + R.id] || migrating || !me || !canEdit()) return;
+  migrating = true;
+  try {
+    const now = new Date().toISOString(), m = remapData(P, raw);
+    const empty = () => ({ d: norm([]), by: me.uid, byName: me.name || "", at: now, h: [] });
+    const entries = [];
+    P.geo.map((g) => g.n).concat((P.cells || []).map((c) => c.n)).forEach((n) => {
+      const nv = m[n], ov = raw[n];
+      if (nv === ov) return;
+      if (!nv && !(ov && norm(ov.d).some(Boolean))) return;
+      entries.push([n, nv ? { d: norm(nv.d), by: me.uid, byName: nv.byName || "", at: nv.at || now, h: (nv.h || []).slice(-30) } : empty()]);
+    });
+    entries.push(["_" + R.id, empty()]);
+    await be.saveMongMany(pid, entries);
+  } catch (e) { console.warn("Chuyển số liệu lỗi", e); }
+  migrating = false;
 }
 
 // Quyền của người dùng trên nhà của mặt bằng đang xem
@@ -692,7 +728,7 @@ async function importExcel() {
         const n = String(c.v).trim(); if (!known.has(n)) continue;
         rows[n] = cols.map((k) => cellDate(X, ws[k + r]));
       }
-      const existing = P && prj.id === P.id ? data : await be.getMongAll(prj.id);
+      const existing = P && prj.id === P.id ? data : remapData(prj, await be.getMongAll(prj.id));
       const entries = makeEntries(existing, Object.keys(rows), (n) => rows[n], "Nhập từ Excel");
       if (entries.length) await be.saveMongMany(prj.id, entries);
       if (P && prj.id === P.id) entries.forEach(([n, d]) => (data[n] = d));
@@ -859,7 +895,7 @@ async function exportPdf(all) {
     for (const meta of list) {
       setStatus(`Đang tạo PDF – ${meta.name}…`);
       const prj = await loadProject(meta.id);
-      const map = prj.id === P.id ? data : await be.getMongAll(prj.id);
+      const map = prj.id === P.id ? data : remapData(prj, await be.getMongAll(prj.id));
       const cv = await renderPlanCanvas(prj, map, asof);
       const land = cv.width >= cv.height, pw = land ? 420 : 297, ph = land ? 297 : 420, m = 8;
       if (!doc) doc = new lib.jsPDF({ orientation: land ? "landscape" : "portrait", unit: "mm", format: "a3", compress: true });
