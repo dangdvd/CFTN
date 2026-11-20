@@ -284,21 +284,40 @@ async function switchProject(id) {
 // ---------- Đánh số lại cấu kiện ----------
 // prj.remap = {id, src:{sốMới:[sốCũ ưu tiên, sốCũ dự phòng]}}. Khi chưa chuyển dữ liệu, hiển thị theo số mới
 // bằng cách lấy dữ liệu từ số cũ; người có quyền cập nhật mở mặt bằng sẽ chuyển hẳn dữ liệu 1 lần (kèm dấu "_id").
-function remapData(prj, d) {
-  const R = prj && prj.remap;
-  if (!R || d["_" + R.id]) return d;
-  const out = {};
-  prj.geo.map((g) => g.n).concat((prj.cells || []).map((c) => c.n)).forEach((n) => {
+// prj.remap = [{id, keys:{g:số đà kiềng, c:số ô}, src:{sốMới:[sốCũ…]}, upto:{sốMới:k}}] – các lần đánh số lại theo thứ tự.
+// upto[n]=k: cấu kiện gộp, lấy ngày các công tác 0..k-1 từ các số cũ, các công tác sau để trống.
+const remapList = (prj) => (prj && prj.remap ? [].concat(prj.remap) : []);
+function remapStage(R, d) {
+  const out = {}, keys = [];
+  for (let i = 1; i <= R.keys.g; i++) keys.push(String(i));
+  for (let i = 1; i <= (R.keys.c || 0); i++) keys.push("O" + i);
+  keys.forEach((n) => {
     const cand = R.src[n] || [n];
-    const s = cand.find((k) => d[k] && norm(d[k].d).some(Boolean));
+    const k = R.upto && R.upto[n];
+    if (k !== undefined) {
+      const recs = cand.map((c) => d[c]).filter(Boolean), all = recs.flatMap((r) => norm(r.d)).filter(Boolean).sort();
+      const fb = all.length ? all[all.length - 1] : new Date().toISOString().slice(0, 10);
+      const nd = norm([]).map((_, i) => (i < k ? recs.map((r) => norm(r.d)[i]).find(Boolean) || fb : null));
+      const base = recs[0] || {};
+      out[n] = { d: nd, by: base.by || "", byName: base.byName || "", at: base.at || new Date().toISOString(),
+        h: [].concat(...recs.map((r) => r.h || [])).sort((x, y) => (x.at || "").localeCompare(y.at || "")).slice(-30) };
+      return;
+    }
+    const s = cand.find((c) => d[c] && norm(d[c].d).some(Boolean));
     if (s !== undefined) out[n] = d[s];
   });
   return out;
 }
+function remapData(prj, d) {
+  let cur = d;
+  remapList(prj).forEach((R) => { if (!d["_" + R.id]) cur = remapStage(R, cur); });
+  return cur;
+}
 let migrating = false;
 async function migrateRemap(raw) {
-  const R = P && P.remap, pid = P && P.id;
-  if (!R || raw["_" + R.id] || migrating || !me || !canEdit()) return;
+  const L = remapList(P), pid = P && P.id;
+  const todo = L.filter((R) => !raw["_" + R.id]);
+  if (!todo.length || migrating || !me || !canEdit()) return;
   migrating = true;
   try {
     const now = new Date().toISOString(), m = remapData(P, raw);
@@ -310,7 +329,7 @@ async function migrateRemap(raw) {
       if (!nv && !(ov && norm(ov.d).some(Boolean))) return;
       entries.push([n, nv ? { d: norm(nv.d), by: me.uid, byName: nv.byName || "", at: nv.at || now, h: (nv.h || []).slice(-30) } : empty()]);
     });
-    entries.push(["_" + R.id, empty()]);
+    todo.forEach((R) => entries.push(["_" + R.id, empty()]));
     await be.saveMongMany(pid, entries);
   } catch (e) { console.warn("Chuyển số liệu lỗi", e); }
   migrating = false;
