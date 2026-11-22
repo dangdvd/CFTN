@@ -1,5 +1,5 @@
 import { OWNER_EMAILS } from "./config.js";
-import { initWeekly } from "./weekly.js?v=20261122d";
+import { initWeekly } from "./weekly.js?v=20261122e";
 
 // ===================== Hằng số =====================
 const STEPS = [
@@ -18,6 +18,9 @@ const STEPS = [
   { name: "Cốp pha sàn",      color: "#FFC000", slot: 3 },
   { name: "Đổ bê tông sàn",   color: "#00B050", slot: 4 },
 ];
+// Tên công tác có thể đặt riêng theo mặt bằng: prj.stepNames = {chỉ số: "tên"}
+const BASE_NAMES = STEPS.map((s) => s.name);
+function useStepNames(prj) { STEPS.forEach((s, i) => (s.name = (prj && prj.stepNames && prj.stepNames[i]) || BASE_NAMES[i])); }
 // Vị trí lưu ngày của công tác i trong mảng d
 const SLOT = (i) => (STEPS[i].slot ?? i);
 const NONE_COLOR = "#FFFFFF";
@@ -232,7 +235,7 @@ async function boot() {
     ALL_PROJECTS = await (await fetch("data/projects.json", { cache: "no-cache" })).json();
   } catch (e) { gate(`<div class="err">Không tải được danh sách mặt bằng.</div>`); return; }
   try {
-    be = await import("./backend.js?v=20261122d");
+    be = await import("./backend.js?v=20261122e");
   } catch (e) { gate(`<div class="err">Không tải được Firebase. Kiểm tra kết nối mạng.<br><small>${esc(e.message)}</small></div>`); return; }
 
   be.onUser((u) => {
@@ -271,7 +274,7 @@ function cleanup() {
 let built = false;
 // Tên mặt bằng dạng "Nhà … – Móng" → [nhà, loại mặt bằng]
 function splitName(n) { const i = n.lastIndexOf(" – "); return i < 0 ? [n, ""] : [n.slice(0, i), n.slice(i + 3)]; }
-const KIND_ORDER = ["Móng", "Móng bể nước", "Đà kiềng", "Cổ cột", "Cột tầng 1", "Vách tầng 1"];
+const KIND_ORDER = ["Móng", "Móng bể nước", "Đà kiềng", "Dầm sàn tầng 1", "Cổ cột", "Cột tầng 1", "Vách tầng 1"];
 function plansOf(h) {
   return PROJECTS.filter((x) => splitName(x.name)[0] === h)
     .sort((a, b) => KIND_ORDER.indexOf(splitName(a.name)[1]) - KIND_ORDER.indexOf(splitName(b.name)[1]));
@@ -295,6 +298,7 @@ async function switchProject(id) {
   data = {}; sel.clear(); online = false; lastMsg = null;
   multi = false; setBox(false); $("multiBtn").classList.remove("on"); setSheet(false);
   try { P = await loadProject(id); } catch (e) { setStatus("Không tải được mặt bằng", "warn"); return; }
+  useStepNames(P);
   if (location.hash.replace("#", "") !== P.id) history.replaceState(null, "", "#" + P.id);
   syncSelectors(P.id);
   applyRole();
@@ -998,6 +1002,10 @@ async function drawPlanOn(c, prj, map, asof, ox, oy, s, colored) {
 
 // Vẽ mặt bằng đã tô màu + tiêu đề + bảng tổng hợp lên canvas
 async function renderPlanCanvas(prj, map, asof) {
+  useStepNames(prj);
+  try { return await renderPlanCanvasInner(prj, map, asof); } finally { useStepNames(P); }
+}
+async function renderPlanCanvasInner(prj, map, asof) {
   // Mặt bằng dẹt (nhà sấy phun): bảng tổng hợp ở dưới.
   // Mặt bằng gần vuông (nhà kho): chú thích + tổng hợp ở bên phải để vừa A3 ngang.
   const A3 = 420 / 297, head = 190, iar = prj.width / prj.height;
