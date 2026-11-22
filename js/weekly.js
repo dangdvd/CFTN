@@ -649,6 +649,8 @@ export function initWeekly(ctx) {
     return cols;
   }
   const colsW = (cols) => cols.reduce((a, k) => a + k.w, 0);
+  // Giãn các cột theo tỉ lệ để bảng rộng đúng W (các bảng xếp chồng cùng một chiều rộng)
+  const stretch = (cols, W) => { const t = colsW(cols); return t >= W ? cols : cols.map((k) => ({ ...k, w: (k.w * W) / t })); };
 
   // Trang báo cáo: Wd × H (PNG 16:9, PDF khổ A3 ngang). Mặt bằng được ưu tiên to nhất có thể.
   async function renderPage(tab, Wd, H) {
@@ -719,6 +721,8 @@ export function initWeekly(ctx) {
         t2Left: true, leftW, mapX, mapAW, mapAH: availH, sc: Math.min(mapAW / prj.width, availH / prj.height), signH: fs * 6 };
     }
     const B = best, fs = B.fs;
+    // các bảng xếp dọc ở cột trái có cùng chiều rộng
+    B.c1 = stretch(B.c1, B.leftW); if (B.c3) B.c3 = stretch(B.c3, B.leftW); if (B.t2Left) B.c2 = stretch(B.c2, B.leftW);
 
     // ----- Mặt bằng -----
     const mw = prj.width * B.sc, mh = prj.height * B.sc;
