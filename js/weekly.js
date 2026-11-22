@@ -752,6 +752,19 @@ export function initWeekly(ctx) {
     const rows1x = rows1.length ? rows1 : [{ cells: ["(chưa khoanh vùng)", "", "", "", ""] }];
     const signNames = ["Kỹ thuật hiện trường", "Chỉ Huy Trưởng"];
     const SIGN_SPACE = Math.round(300 * u);
+    // Ghi chú màu công tác dưới mặt bằng (khi bật Tô màu tiến độ)
+    const legItems = W.colored ? [{ name: "Chưa thi công", color: "#ffffff" }].concat(ctx.prjSteps(prj).map((i) => ctx.STEPS[i])) : [];
+    function legLayout(fs, width) {
+      if (!legItems.length) return { h: 0, rows: [] };
+      c.font = `${fs}px ${FONT}`;
+      const sw = fs * 1.6, ig = fs * 1.6, rows = [[]]; let x = 0;
+      legItems.forEach((it) => {
+        const w = sw + fs * 0.5 + c.measureText(it.name).width;
+        if (x && x + w > width) { rows.push([]); x = 0; }
+        rows[rows.length - 1].push({ ...it, w }); x += w + ig;
+      });
+      return { h: rows.length * fs * 1.7, rows, sw, ig };
+    }
     const cands = [];
     for (let fs = Math.round(44 * u); fs >= Math.round(22 * u); fs -= 2) {
       const c1 = autoCols(c, h1, rows1x, fs), c2 = autoCols(c, h2, rows2, fs), c3 = rows3.length ? autoCols(c, h3, rows3, fs) : null;
@@ -763,10 +776,10 @@ export function initWeekly(ctx) {
         const leftW = Math.max(colsW(c1), c3 ? colsW(c3) : 0, signW, t2Left ? colsW(c2) : 0);
         const leftH = th1 + (c3 ? gap + th3 : 0) + (t2Left ? gap + th2 : 0) + gap + signH;
         if (leftH > availH) continue;
-        const mapX = M + leftW + gut, mapAW = Wd - M - mapX, mapAH = availH - (t2Left ? 0 : th2 + gap);
+        const mapX = M + leftW + gut, mapAW = Wd - M - mapX, lg = legLayout(fs, mapAW), mapAH = availH - (t2Left ? 0 : th2 + gap) - (lg.h ? lg.h + gap : 0);
         if (!t2Left && colsW(c2) > mapAW) continue;
         const sc = Math.min(mapAW / prj.width, mapAH / prj.height);
-        cands.push({ fs, c1, c2, c3, th1, th2, th3, t2Left, leftW, mapX, mapAW, mapAH, sc, signH });
+        cands.push({ fs, c1, c2, c3, th1, th2, th3, t2Left, leftW, mapX, mapAW, mapAH, sc, signH, lg });
       }
     }
     // Chọn cỡ chữ lớn nhất mà mặt bằng vẫn đạt ≥ 90% kích thước lớn nhất có thể; cùng cỡ chữ thì lấy cách cho mặt bằng to hơn
@@ -780,8 +793,10 @@ export function initWeekly(ctx) {
     if (!best) { // quá nhiều dòng: dùng cỡ chữ nhỏ nhất, bảng 2 bên trái
       const fs = Math.round(20 * u), c1 = autoCols(c, h1, rows1x, fs), c2 = autoCols(c, h2, rows2, fs), c3 = rows3.length ? autoCols(c, h3, rows3, fs) : null;
       const leftW = Math.max(colsW(c1), colsW(c2), c3 ? colsW(c3) : 0), mapX = M + leftW + gut, mapAW = Wd - M - mapX;
-      best = { fs, c1, c2, c3, th1: drawTable(c, 0, 0, c1, rows1x, fs, false), th2: drawTable(c, 0, 0, c2, rows2, fs, false), th3: c3 ? drawTable(c, 0, 0, c3, rows3, fs, false) : 0,
-        t2Left: true, leftW, mapX, mapAW, mapAH: availH, sc: Math.min(mapAW / prj.width, availH / prj.height), signH: fs * 6 };
+      const lg = legLayout(fs, mapAW);
+      best = { lg, fs, c1, c2, c3, th1: drawTable(c, 0, 0, c1, rows1x, fs, false), th2: drawTable(c, 0, 0, c2, rows2, fs, false), th3: c3 ? drawTable(c, 0, 0, c3, rows3, fs, false) : 0,
+        t2Left: true, leftW, mapX, mapAW, mapAH: availH - (lg.h ? lg.h + gap : 0), signH: fs * 6 };
+      best.sc = Math.min(mapAW / prj.width, best.mapAH / prj.height);
     }
     const B = best, fs = B.fs;
     // các bảng xếp dọc ở cột trái có cùng chiều rộng
@@ -791,6 +806,21 @@ export function initWeekly(ctx) {
     const mw = prj.width * B.sc, mh = prj.height * B.sc;
     const mx = B.mapX + (B.mapAW - mw) / 2, my = y0 + (B.mapAH - mh) / 2;
     await ctx.drawPlanOn(c, prj, ctx.data, cutoff(), mx, my, B.sc, W.colored);
+    if (B.lg.h) {
+      const L = B.lg; let ly = my + mh + gap;
+      c.font = `${fs}px ${FONT}`; c.textAlign = "left"; c.textBaseline = "middle";
+      L.rows.forEach((row) => {
+        const rw = row.reduce((a, it) => a + it.w, 0) + L.ig * (row.length - 1);
+        let lx = B.mapX + (B.mapAW - rw) / 2; const cy = ly + fs * 0.85;
+        row.forEach((it) => {
+          c.globalAlpha = 0.85; c.fillStyle = it.color; c.fillRect(lx, cy - fs * 0.5, L.sw, fs);
+          c.globalAlpha = 1; c.strokeStyle = "#555"; c.lineWidth = Math.max(1, 2 * u); c.strokeRect(lx, cy - fs * 0.5, L.sw, fs);
+          c.fillStyle = "#111"; c.fillText(it.name, lx + L.sw + fs * 0.5, cy);
+          lx += it.w + L.ig;
+        });
+        ly += fs * 1.7;
+      });
+    }
     const fsz = Math.max(26 * u, Math.min(52 * u, mw / 60));
     d.zones.forEach((z, i) => {
       c.beginPath(); c.moveTo(mx + z.p[0] * B.sc, my + z.p[1] * B.sc);
