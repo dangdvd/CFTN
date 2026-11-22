@@ -440,6 +440,7 @@ function renderStats() {
 // ---------- Phóng to / di chuyển ----------
 function fit(cover) {
   const r = $("map").getBoundingClientRect(); if (!r.width || !r.height) return;
+  lastBox = { w: r.width, h: r.height };
   const ar = r.width / r.height, iar = P.width / P.height;
   if (cover === true && ar < iar) { vb.h = P.height; vb.w = P.height * ar; vb.x = (P.width - vb.w) / 2; vb.y = 0; setVB(); return; }
   if (ar > iar) { vb.h = P.height; vb.w = P.height * ar; vb.x = -(vb.w - P.width) / 2; vb.y = 0; }
@@ -459,6 +460,8 @@ function centerZoom(f) { const r = $("map").getBoundingClientRect(); zoomAt(f, r
 function bindUI() {
   const svg = $("map");
   $("asof").value = todayStr();
+  if (window.ResizeObserver) new ResizeObserver(onMapResize).observe(svg);
+  else window.addEventListener("resize", onMapResize);
   svg.addEventListener("wheel", (e) => { e.preventDefault(); zoomAt(e.deltaY < 0 ? 1.2 : 1 / 1.2, e.clientX, e.clientY); }, { passive: false });
   $("zin").onclick = () => centerZoom(1.4);
   $("zout").onclick = () => centerZoom(1 / 1.4);
@@ -589,9 +592,24 @@ function setBox(on) {
   $("map").classList.toggle("boxmode", boxMode);
   updateHandle();
 }
+// Đổi toạ độ màn hình → toạ độ mặt bằng theo ma trận thực của SVG (đúng cả khi khung bị co giãn)
 function toSvgPt(cx, cy) {
-  const r = $("map").getBoundingClientRect();
+  const svg = $("map"), m = svg.getScreenCTM();
+  if (m) { const pt = svg.createSVGPoint(); pt.x = cx; pt.y = cy; const q = pt.matrixTransform(m.inverse()); return { x: q.x, y: q.y }; }
+  const r = svg.getBoundingClientRect();
   return { x: vb.x + ((cx - r.left) / r.width) * vb.w, y: vb.y + ((cy - r.top) / r.height) * vb.h };
+}
+// Khung mặt bằng đổi kích thước (bật tab Kế hoạch tuần, kéo cửa sổ, xoay điện thoại):
+// giữ tâm và tỉ lệ đang xem, chỉnh viewBox cho khớp tỉ lệ khung mới để chuột/ngón tay không bị lệch
+let lastBox = null;
+function onMapResize() {
+  const r = $("map").getBoundingClientRect();
+  if (!r.width || !r.height || !P) return;
+  if (lastBox && lastBox.w && lastBox.h) {
+    const k = vb.w / lastBox.w, cx = vb.x + vb.w / 2, cy = vb.y + vb.h / 2;
+    vb.w = r.width * k; vb.h = r.height * k; vb.x = cx - vb.w / 2; vb.y = cy - vb.h / 2; setVB();
+  }
+  lastBox = { w: r.width, h: r.height };
 }
 function hideBox() { const b = document.getElementById("selbox"); if (b) b.remove(); }
 function drawBox(g, cx, cy) {
