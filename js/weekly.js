@@ -1,0 +1,663 @@
+// =====================================================================
+//  Tab "Kế hoạch – Báo cáo tuần"
+//  - Tuần báo cáo W = [start, start+6]; kế hoạch lập cho tuần tới W+1.
+//  - Dữ liệu: projects/{id}/weeks/w{ngày đầu tuần}
+//      zones: [{id, n, p:[x,y,…]}]          vùng khoanh trên mặt bằng (tuyến)
+//      rows:  [{z, s, n, b, e, kh, th}]     bảng 1: công tác theo vùng
+//      t2:    {s: %}                        % kế hoạch của tuần này (bảng 2)
+//      res:   [{n, q, g}]                   nhân lực – thiết bị (tuỳ chọn)
+//      tA, dA / tB, dB                      tiêu đề, ngày lập của trang kế hoạch / báo cáo
+//    projects/{id}/weeks/_cfg: kl: {s: {v, u}}  khối lượng tổng & đơn vị nhập tay
+//  - Tab A (kế hoạch tuần tới) sửa tài liệu của tuần W+1.
+//  - Tab B (báo cáo tuần W) đọc kế hoạch đã lập cho W, nhập % thực hiện;
+//    "% kế hoạch tuần tới" của B chính là t2 của tuần W+1 (cùng 1 số liệu với A).
+// =====================================================================
+
+const BLUE = "#1f4e9c";
+const DAY = 86400000;
+
+export function initWeekly(ctx) {
+  const { $, esc, STEPS } = ctx;
+  const W = {
+    active: false, tab: "A", start: null, docs: {}, meta: {}, unsub: [], cfg: { kl: {} },
+    tool: null, draft: [], timers: {}, colored: true, pendingRender: false, msg: null,
+  };
+
+  // ---------- Ngày ----------
+  const toD = (s) => { const [y, m, d] = s.split("-").map(Number); return Date.UTC(y, m - 1, d); };
+  const toS = (t) => new Date(t).toISOString().slice(0, 10);
+  const addDays = (s, n) => toS(toD(s) + n * DAY);
+  const dow = (s) => new Date(toD(s)).getUTCDay();
+  const dm = (s) => { if (!s) return ""; const [, m, d] = s.split("-"); return `${+d}/${+m}`; };
+  const wid = (s) => "w" + s;
+  const curStart = () => W.start, nxtStart = () => addDays(W.start, 7);
+  const curEnd = () => addDays(W.start, 6), nxtEnd = () => addDays(W.start, 13);
+  // Ngày chốt số liệu = ngày cuối tuần báo cáo (cũng là ngày trước tuần kế hoạch)
+  const cutoff = () => curEnd();
+
+  function defaultStart() {
+    let wd = 6; // tuần mặc định Thứ 7 → Thứ 6 như mẫu báo cáo
+    try { const v = localStorage.getItem("cftn_wkday"); if (v !== null && v !== "") wd = +v; } catch (e) {}
+    const t = ctx.todayStr();
+    return addDays(t, -((dow(t) - wd + 7) % 7));
+  }
+
+  const empty = (start) => ({ start, end: addDays(start, 6), zones: [], rows: [], t2: {}, res: [] });
+  const docOf = (start) => W.docs[wid(start)] || (W.docs[wid(start)] = empty(start));
+  const cur = () => docOf(curStart());
+  const nxt = () => docOf(nxtStart());
+  // Trang đang xem: A → kế hoạch tuần tới (tài liệu W+1), B → báo cáo tuần W (tài liệu W)
+  const pageDoc = () => (W.tab === "A" ? nxt() : cur());
+
+  const canEdit = () => ctx.canEdit();
+  const P = () => ctx.P;
+
+  // ---------- Đồng bộ Firestore ----------
+  function stop() {
+    W.unsub.forEach((u) => { try { u(); } catch (e) {} });
+    W.unsub = []; W.docs = {}; W.meta = {}; W.cfg = { kl: {} };
+    Object.values(W.timers).forEach(clearTimeout); W.timers = {};
+  }
+  function watch() {
+    stop();
+    if (!W.active || !P() || !ctx.be) return;
+    const pid = P().id;
+    const onErr = (e) => msg("Lỗi đọc kế hoạch tuần: " + (e.code === "permission-denied" ? "chưa cập nhật Firestore Rules (xem README) hoặc không có quyền." : e.code || e.message));
+    [curStart(), nxtStart()].forEach((st) => {
+      W.unsub.push(ctx.be.watchWeek(pid, wid(st), (d, m) => {
+        if (!P() || P().id !== pid) return;
+        if (m && m.hasPendingWrites) return;
+        if (W.timers[wid(st)]) return; // đang có thay đổi chưa lưu → giữ bản trên máy
+        W.docs[wid(st)] = Object.assign(empty(st), d || {});
+        W.meta[wid(st)] = d ? { by: d.byName, at: d.at } : null;
+        requestRender(); drawZones();
+      }, onErr));
+    });
+    W.unsub.push(ctx.be.watchWeek(pid, "_cfg", (d, m) => {
+      if (m && m.hasPendingWrites) return;
+      if (W.timers._cfg) return;
+      W.cfg = { kl: (d && d.kl) || {} }; requestRender();
+    }, onErr));
+  }
+  function save(key) {
+    if (!canEdit()) return;
+    clearTimeout(W.timers[key]);
+    W.timers[key] = setTimeout(async () => {
+      const pid = P().id, me = ctx.me;
+      const base = key === "_cfg" ? { kl: W.cfg.kl } : W.docs[key];
+      const out = JSON.parse(JSON.stringify(base));
+      out.by = me.uid; out.byName = me.name || ""; out.at = new Date().toISOString();
+      try { await ctx.be.saveWeek(pid, key, out); delete W.timers[key]; msg("Đã lưu.", true); }
+      catch (e) { delete W.timers[key]; msg("Không lưu được: " + (e.code === "permission-denied" ? "không có quyền ghi (hoặc chưa cập nhật Firestore Rules – xem README)." : e.code || e.message)); }
+    }, 700);
+  }
+  const touch = () => save(wid(W.tab === "A" ? nxtStart() : curStart()));
+
+  // ---------- Tính toán tiến độ ----------
+  function inPoly(x, y, p) {
+    let ins = false;
+    for (let i = 0, j = p.length - 2; i < p.length; j = i, i += 2) {
+      const xi = p[i], yi = p[i + 1], xj = p[j], yj = p[j + 1];
+      if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) ins = !ins;
+    }
+    return ins;
+  }
+  // Cấu kiện thuộc vùng: điểm đặt số hiệu (tâm) nằm trong vùng
+  function members(z) {
+    const prj = P(), out = [];
+    prj.geo.forEach((g) => { if (inPoly(g.l[0], g.l[1], z.p)) out.push(g.n); });
+    (prj.cells || []).forEach((c) => { if (inPoly(c.l[0], c.l[1], z.p)) out.push(c.n); });
+    return out;
+  }
+  // % hoàn thành của công tác s trong vùng z tại ngày asof (theo số cấu kiện)
+  function zonePct(z, s, asof) {
+    const prj = P(), ids = members(z).filter((n) => ctx.stepsFor(prj, n).includes(s));
+    if (!ids.length) return null;
+    const done = ids.filter((n) => ctx.levelIn(prj, ctx.data, n, asof) > s).length;
+    return { done, tot: ids.length, pct: pctOf(done, ids.length) };
+  }
+  const pctOf = (a, b) => (b ? (a === b ? 100 : Math.floor((a / b) * 100)) : 0);
+  const cellStep = () => (P().cells ? P().cellStep ?? 5 : -1);
+  const unitOf = (s) => (W.cfg.kl[s] && W.cfg.kl[s].u) || (s === cellStep() ? "ô" : ctx.U());
+  // Bảng 2: khối lượng toàn mặt bằng tại ngày asof
+  function totals(asof) {
+    const { cnt, tot } = ctx.statsIn(P(), ctx.data, asof);
+    return ctx.prjSteps(P()).map((s) => {
+      const k = W.cfg.kl[s] || {}, v = Number(k.v) > 0 ? Number(k.v) : null;
+      const kl = v ?? tot[s], pct = pctOf(cnt[s], tot[s]);
+      const lk = v ? Math.round((v * cnt[s]) / (tot[s] || 1)) : cnt[s];
+      return { s, name: STEPS[s].name, unit: unitOf(s), kl, lk, pct, custom: !!v, count: tot[s] };
+    });
+  }
+  // Công tác chưa xong trong vùng (dùng để tạo dòng bảng 1)
+  function openSteps(z) {
+    return ctx.prjSteps(P()).filter((s) => { const r = zonePct(z, s, cutoff()); return r && r.pct < 100; });
+  }
+
+  // ---------- Vùng ----------
+  const nextZoneId = (d) => d.zones.reduce((m, z) => Math.max(m, z.id), 0) + 1;
+  function addZone(p) {
+    if (!canEdit() || W.tab !== "A") return;
+    const d = nxt(), z = { id: nextZoneId(d), n: `Tuyến ${d.zones.length + 1}`, p: p.map((v) => Math.round(v * 10) / 10) };
+    if (!members(z).length) { msg("Vùng vừa vẽ không chứa cấu kiện nào – hãy vẽ lại."); drawZones(); return; }
+    d.zones.push(z);
+    const st = openSteps(z);
+    st.forEach((s) => d.rows.push({ z: z.id, s, n: STEPS[s].name, b: "", e: "", kh: null, th: null }));
+    touch(); render(); drawZones();
+    msg(st.length ? `${z.n}: ${members(z).length} cấu kiện, ${st.length} công tác chưa xong.` : `${z.n}: các công tác trong vùng đã xong hết.`, true);
+  }
+  function addRect(a, b) {
+    if (!W.active || W.tool !== "rect") return;
+    if (Math.abs(a.x - b.x) < 5 || Math.abs(a.y - b.y) < 5) return;
+    const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x), y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);
+    addZone([x0, y0, x1, y0, x1, y1, x0, y1]);
+  }
+  function tap(pt) {
+    if (W.tool !== "poly") return;
+    const tol = ctx.pxToSvg(14);
+    if (W.draft.length >= 3 && Math.hypot(pt.x - W.draft[0].x, pt.y - W.draft[0].y) < tol) return closePoly();
+    W.draft.push(pt); drawZones(); setTool("poly");
+  }
+  function closePoly() {
+    if (W.draft.length < 3) { msg("Cần ít nhất 3 đỉnh."); return; }
+    const p = []; W.draft.forEach((q) => p.push(q.x, q.y));
+    W.draft = []; addZone(p); setTool("poly");
+  }
+  function setTool(t) {
+    W.tool = t; if (t !== "poly") W.draft = [];
+    $("zRect").classList.toggle("on", t === "rect");
+    $("zPoly").classList.toggle("on", t === "poly");
+    $("zDone").hidden = !(t === "poly" && W.draft.length >= 3);
+    $("zCancel").hidden = !t;
+    $("map").classList.toggle("boxmode", !!t);
+    drawZones(); ctx.updateHandle();
+  }
+
+  // ---------- Vẽ vùng trên SVG ----------
+  const NS = "http://www.w3.org/2000/svg";
+  function drawZones() {
+    const svg = $("map"); if (!svg || !P()) return;
+    let g = document.getElementById("zlayer");
+    if (!g) { g = document.createElementNS(NS, "g"); g.id = "zlayer"; svg.appendChild(g); }
+    else svg.appendChild(g); // luôn nằm trên cùng
+    g.innerHTML = "";
+    if (!W.active) return;
+    const fs = P().width / 55;
+    pageDoc().zones.forEach((z, i) => {
+      const path = document.createElementNS(NS, "polygon");
+      const pts = []; for (let k = 0; k < z.p.length; k += 2) pts.push(z.p[k] + "," + z.p[k + 1]);
+      path.setAttribute("points", pts.join(" ")); path.setAttribute("class", "zone");
+      g.appendChild(path);
+      const bb = bbox(z.p), w = fs * 1.6, h = fs * 1.35, x = bb.x1 - w - fs * 0.2, y = bb.y0 + fs * 0.2;
+      const r = document.createElementNS(NS, "rect");
+      r.setAttribute("x", x); r.setAttribute("y", y); r.setAttribute("width", w); r.setAttribute("height", h); r.setAttribute("class", "zlabel");
+      const t = document.createElementNS(NS, "text");
+      t.setAttribute("x", x + w / 2); t.setAttribute("y", y + h / 2); t.setAttribute("font-size", fs); t.setAttribute("class", "zlabeltxt");
+      t.textContent = i + 1;
+      g.append(r, t);
+    });
+    if (W.draft.length) {
+      const pl = document.createElementNS(NS, "polyline");
+      pl.setAttribute("points", W.draft.map((q) => q.x + "," + q.y).join(" "));
+      pl.setAttribute("class", "zdraft"); g.appendChild(pl);
+      W.draft.forEach((q, i) => {
+        const c = document.createElementNS(NS, "circle");
+        c.setAttribute("cx", q.x); c.setAttribute("cy", q.y); c.setAttribute("r", ctx.pxToSvg(i === 0 ? 7 : 5));
+        c.setAttribute("class", i === 0 ? "zv first" : "zv"); g.appendChild(c);
+      });
+    }
+  }
+  function bbox(p) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (let i = 0; i < p.length; i += 2) { x0 = Math.min(x0, p[i]); x1 = Math.max(x1, p[i]); y0 = Math.min(y0, p[i + 1]); y1 = Math.max(y1, p[i + 1]); }
+    return { x0, y0, x1, y1 };
+  }
+
+  // ---------- Bật / tắt tab ----------
+  function setActive(on) {
+    if (on === W.active) return;
+    W.active = on;
+    document.querySelectorAll(".viewtabs button").forEach((b) => b.classList.toggle("on", (b.dataset.view === "week") === on));
+    $("app").classList.toggle("weekly", on);
+    if (on) {
+      if (!W.start) W.start = defaultStart();
+      ctx.clearSel();
+      W.savedAsof = $("asof").value;
+      watch();
+    } else {
+      setTool(null); stop();
+      if (W.savedAsof) $("asof").value = W.savedAsof;
+    }
+    applyAsof(); render(); drawZones(); ctx.updateHandle();
+  }
+  // Mặt bằng tô màu tiến độ tại ngày chốt số liệu (cuối tuần báo cáo)
+  function applyAsof() {
+    if (!W.active) { $("map").classList.remove("nocolor"); ctx.paint(); return; }
+    $("asof").value = cutoff();
+    $("map").classList.toggle("nocolor", !W.colored);
+    ctx.paint();
+  }
+  function setStart(s) {
+    if (!s) return;
+    W.start = s;
+    try { localStorage.setItem("cftn_wkday", String(dow(s))); } catch (e) {}
+    setTool(null); watch(); applyAsof(); render(); drawZones();
+  }
+
+  // ---------- Bảng bên phải ----------
+  function msg(text, ok) {
+    W.msg = { text, ok, t: Date.now() };
+    const m = document.getElementById("wkMsg");
+    if (m) { m.textContent = text; m.style.color = ok ? "#05603a" : "#b42318"; }
+  }
+  function requestRender() {
+    const a = document.activeElement;
+    if (a && a.closest && a.closest("#wksec") && /INPUT|SELECT|TEXTAREA/.test(a.tagName)) { W.pendingRender = true; return; }
+    render();
+  }
+  const defTitle = (tab) => {
+    const [house, kind] = ctx.splitName(ctx.projName());
+    const tail = `${kind} ${house}`.toLocaleUpperCase("vi");
+    return tab === "A" ? `B. TIẾN ĐỘ ${tail}` : `B. THỰC HIỆN TRONG TUẦN ${tail}`;
+  };
+  const titleOf = (tab) => (tab === "A" ? nxt().tA : cur().tB) || defTitle(tab);
+  const dateOf = (tab) => (tab === "A" ? nxt().dA || curEnd() : cur().dB || addDays(curEnd(), 1));
+  const fmtNum = (v) => (v === null || v === undefined || v === "" ? "" : Number(v).toLocaleString("vi-VN"));
+  const pctTxt = (v) => (v === null || v === undefined || v === "" ? "" : `${v}%`);
+  const zoneName = (d, id) => { const i = d.zones.findIndex((z) => z.id === id); return i < 0 ? null : d.zones[i]; };
+
+  function render() {
+    W.pendingRender = false;
+    const box = $("wksec"); if (!box) return;
+    if (!W.active || !P()) { box.innerHTML = ""; return; }
+    $("wkStart").value = W.start;
+    $("wkRange").textContent = `${dm(curStart())} – ${dm(curEnd())}/${curEnd().slice(0, 4)}`;
+    const ed = canEdit(), A = W.tab === "A", d = pageDoc(), dis = ed ? "" : " disabled";
+    document.querySelectorAll(".wked").forEach((b) => (b.hidden = !(ed && A)));
+    if (!(ed && A) && W.tool) setTool(null);
+    const asof = cutoff(), T = totals(asof);
+    let h = `<div class="wktabs">
+      <button data-tab="A" class="${A ? "on" : ""}">A. Kế hoạch tuần tới<small>${dm(nxtStart())} – ${dm(nxtEnd())}</small></button>
+      <button data-tab="B" class="${A ? "" : "on"}">B. Báo cáo tuần<small>${dm(curStart())} – ${dm(curEnd())}</small></button>
+    </div>`;
+    h += ed ? "" : `<div class="note">Bạn có quyền chỉ xem.</div>`;
+    const meta = W.meta[wid(A ? nxtStart() : curStart())];
+    h += `<div class="wkform">
+      <label>Tiêu đề trang <input type="text" id="wkTitle" value="${esc(titleOf(W.tab))}"${dis}></label>
+      <label>Ngày lập <input type="date" id="wkDate" value="${dateOf(W.tab)}"${dis}></label>
+    </div>
+    <div class="muted small">Số liệu tính đến hết ngày <b>${ctx.fmt(asof)}</b>${meta && meta.at ? ` · Lưu lần cuối: ${esc(meta.by || "")}, ${new Date(meta.at).toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" })}` : ""}</div>`;
+
+    // ----- Bảng 1 -----
+    h += `<h3>Bảng 1 – Công tác theo vùng ${A ? "<small>(kế hoạch tuần tới)</small>" : "<small>(kế hoạch đã lập cho tuần này)</small>"}</h3>`;
+    if (!d.zones.length) {
+      h += `<div class="empty">${A
+        ? (ed ? `Chưa có vùng nào. Bấm <b>▭ Vẽ vùng</b> rồi kéo khung trên mặt bằng, hoặc <b>⬠ Vẽ đa giác</b> rồi bấm lần lượt các đỉnh (bấm lại đỉnh đầu để đóng). Mỗi vùng là một tuyến; bảng sẽ liệt kê các công tác chưa xong trong vùng.` : "Chưa có kế hoạch cho tuần tới.")
+        : `Chưa có kế hoạch cho tuần ${dm(curStart())} – ${dm(curEnd())}. Kế hoạch được lập ở tab <b>A</b> khi chọn tuần báo cáo trước đó (◀).`}</div>`;
+    } else {
+      if (!A && ed) h += `<div class="actions" style="margin:0 0 6px"><button id="fillActual" title="Điền % thực hiện bằng % hoàn thành thực tế trong vùng tính đến ${ctx.fmt(asof)} (chỉ các ô còn trống)">Điền % theo thực tế</button></div>`;
+      h += `<div class="tblwrap"><table class="wk t1"><thead><tr><th>Công tác</th><th>Bắt đầu</th><th>Kết thúc</th><th>% hoàn thành kế hoạch</th><th>% thực hiện trong tuần</th>${A && ed ? "<th></th>" : ""}</tr></thead><tbody>`;
+      d.zones.forEach((z, zi) => {
+        const n = members(z).length;
+        h += `<tr class="grp"><td colspan="${A && ed ? 6 : 5}"><span class="zno">${zi + 1}</span>` +
+          (A && ed ? `<input type="text" class="zn" data-z="${z.id}" value="${esc(z.n)}"> <small class="muted">${n} ${ctx.U()}</small>
+            <button class="link" data-zref="${z.id}" title="Thêm lại các công tác chưa xong của vùng">↻ công tác</button>
+            <button class="x" data-zdel="${z.id}" title="Xoá vùng và các công tác của vùng">×</button>`
+            : `<b>${esc(z.n)}</b> <small class="muted">${n} ${ctx.U()}</small>`) + `</td></tr>`;
+        d.rows.forEach((r, ri) => {
+          if (r.z !== z.id) return;
+          const now = zonePct(z, r.s, asof), np = now ? now.pct : 0;
+          if (A) {
+            h += `<tr data-r="${ri}">
+              <td>${ed ? `<input type="text" class="rn" value="${esc(r.n)}">` : esc(r.n)}</td>
+              <td><input type="date" class="rb" value="${r.b || ""}" min="${nxtStart()}" max="${nxtEnd()}"${dis}></td>
+              <td><input type="date" class="re" value="${r.e || ""}" min="${nxtStart()}" max="${nxtEnd()}"${dis}></td>
+              <td><input type="number" class="rk pct" value="${r.kh ?? ""}" min="${np + 1}" max="100" step="1"${dis}><small class="muted"> hiện ${np}%</small></td>
+              <td class="muted">—</td>
+              ${ed ? `<td><button class="x" data-rdel="${ri}" title="Bỏ công tác khỏi kế hoạch">×</button></td>` : ""}</tr>`;
+          } else {
+            h += `<tr data-r="${ri}"><td>${esc(r.n)}</td><td>${dm(r.b)}</td><td>${dm(r.e)}</td><td>${pctTxt(r.kh)}</td>
+              <td><input type="number" class="rt pct" value="${r.th ?? ""}" min="0" max="100" step="1"${dis}><small class="muted"> thực tế ${np}%</small></td></tr>`;
+          }
+        });
+      });
+      h += `</tbody></table></div>`;
+    }
+
+    // ----- Bảng 2 -----
+    const t2 = nxt().t2 || {};
+    const prevT2 = A ? (cur().t2 || {}) : {};
+    h += `<h3>Bảng 2 – Khối lượng toàn mặt bằng</h3>
+      <div class="tblwrap"><table class="wk t2"><thead><tr><th>Công tác hạng mục</th><th>KL tổng<small>(bấm để sửa)</small></th>
+      <th>KL lũy kế ${A ? "tuần trước" : "tuần này"}</th><th>% thi công lũy kế ${A ? "tuần trước" : "tuần này"}</th><th>% kế hoạch ${A ? "tuần này" : "tuần tới"}</th></tr></thead><tbody>`;
+    T.forEach((r) => {
+      h += `<tr data-s="${r.s}"><td>${esc(r.name)} <small class="muted">(${esc(r.unit)})</small></td>
+        <td class="kl"><input type="number" class="klv" value="${r.custom ? r.kl : ""}" placeholder="${r.count}" min="0" step="any"${dis}><input type="text" class="klu" value="${esc(W.cfg.kl[r.s] && W.cfg.kl[r.s].u || "")}" placeholder="${esc(r.unit)}"${dis}></td>
+        <td class="num">${fmtNum(r.lk)}</td><td class="num">${r.pct}%</td>
+        <td><input type="number" class="t2k pct" value="${t2[r.s] ?? ""}" min="${Math.min(100, r.pct + 1)}" max="100" step="1"${dis}${r.pct >= 100 ? ' placeholder="xong"' : ""}></td></tr>`;
+    });
+    h += `</tbody></table></div>`;
+    h += `<div class="muted small">KL tổng để trống = số ${ctx.U()}/ô trên mặt bằng; nhập khối lượng thật (vd 32200 kg) thì KL lũy kế = KL tổng × % hoàn thành theo số cấu kiện. ${A ? "" : "% kế hoạch tuần tới cũng chính là % kế hoạch tuần này ở tab A của tuần sau."}</div>`;
+    if (A && Object.keys(prevT2).length) {
+      h += `<div class="muted small">Kế hoạch tuần này đã đặt: ${ctx.prjSteps(P()).filter((s) => prevT2[s] != null).map((s) => `${STEPS[s].name} ${prevT2[s]}%`).join(" · ")}</div>`;
+    }
+
+    // ----- Nhân lực – thiết bị -----
+    h += `<h3>Nhân lực – thiết bị <small>(tuỳ chọn, hiện trong trang xuất)</small></h3>
+      <div class="tblwrap"><table class="wk t3"><thead><tr><th>Nội dung CBKT / thiết bị</th><th>Số lượng</th><th>Ghi chú</th>${ed ? "<th></th>" : ""}</tr></thead><tbody>`;
+    (d.res || []).forEach((r, i) => {
+      h += `<tr data-i="${i}"><td><input type="text" class="qn" value="${esc(r.n)}"${dis}></td><td><input type="text" class="qq" value="${esc(r.q)}"${dis}></td><td><input type="text" class="qg" value="${esc(r.g)}"${dis}></td>${ed ? `<td><button class="x" data-qdel="${i}">×</button></td>` : ""}</tr>`;
+    });
+    h += `</tbody></table></div>`;
+    if (ed) h += `<div class="actions"><button id="qAdd">+ Thêm dòng</button>${!(d.res || []).length && (A ? cur() : docOf(addDays(curStart(), -7))).res?.length ? `<button id="qCopy">Lấy theo tuần trước</button>` : ""}</div>`;
+    h += `<div class="msg" id="wkMsg"></div>`;
+    box.innerHTML = h;
+    if (W.msg && Date.now() - W.msg.t < 5000) msg(W.msg.text, W.msg.ok);
+    bindPanel(box);
+  }
+
+  function bad(inp, text) { inp.classList.add("bad"); msg(text); }
+  function good(inp) { inp.classList.remove("bad"); }
+
+  function bindPanel(box) {
+    box.querySelectorAll(".wktabs [data-tab]").forEach((b) => (b.onclick = () => { W.tab = b.dataset.tab; setTool(null); render(); drawZones(); ctx.updateHandle(); }));
+    if (!canEdit()) return;
+    const A = W.tab === "A", d = pageDoc();
+    $("wkTitle").onchange = (e) => { const v = e.target.value.trim(); if (A) d.tA = v; else d.tB = v; touch(); };
+    $("wkDate").onchange = (e) => { if (A) d.dA = e.target.value; else d.dB = e.target.value; touch(); };
+
+    // Bảng 1
+    box.querySelectorAll(".zn").forEach((i) => (i.onchange = () => { const z = zoneName(d, +i.dataset.z); if (z) { z.n = i.value.trim() || z.n; touch(); } }));
+    box.querySelectorAll("[data-zdel]").forEach((b) => (b.onclick = () => {
+      if (b.dataset.ok !== "1") { b.dataset.ok = "1"; b.textContent = "Xoá vùng?"; b.style.color = "#d92d20"; b.style.fontSize = "12px"; return; }
+      const id = +b.dataset.zdel; d.zones = d.zones.filter((z) => z.id !== id); d.rows = d.rows.filter((r) => r.z !== id);
+      touch(); render(); drawZones();
+    }));
+    box.querySelectorAll("[data-zref]").forEach((b) => (b.onclick = () => {
+      const z = zoneName(d, +b.dataset.zref); if (!z) return;
+      const have = new Set(d.rows.filter((r) => r.z === z.id).map((r) => r.s));
+      const add = openSteps(z).filter((s) => !have.has(s));
+      // chèn sau dòng cuối của vùng, giữ thứ tự công tác
+      add.forEach((s) => d.rows.push({ z: z.id, s, n: STEPS[s].name, b: "", e: "", kh: null, th: null }));
+      d.rows.sort((x, y) => d.zones.findIndex((q) => q.id === x.z) - d.zones.findIndex((q) => q.id === y.z) || x.s - y.s);
+      if (add.length) touch();
+      msg(add.length ? `Đã thêm ${add.length} công tác.` : "Không còn công tác chưa xong nào để thêm.", true); render();
+    }));
+    box.querySelectorAll("[data-rdel]").forEach((b) => (b.onclick = () => { d.rows.splice(+b.dataset.rdel, 1); touch(); render(); }));
+    box.querySelectorAll(".t1 tr[data-r]").forEach((tr) => {
+      const r = d.rows[+tr.dataset.r], q = (c) => tr.querySelector(c);
+      const z = zoneName(d, r.z);
+      if (q(".rn")) q(".rn").onchange = (e) => { r.n = e.target.value.trim() || STEPS[r.s].name; touch(); };
+      const inWeek = (v) => v >= nxtStart() && v <= nxtEnd();
+      if (q(".rb")) q(".rb").onchange = (e) => {
+        const v = e.target.value;
+        if (v && !inWeek(v)) return bad(e.target, `Ngày bắt đầu phải trong tuần ${dm(nxtStart())} – ${dm(nxtEnd())}.`);
+        if (v && r.e && r.e <= v) return bad(e.target, "Ngày bắt đầu phải trước ngày kết thúc.");
+        good(e.target); good(q(".re")); r.b = v; touch();
+      };
+      if (q(".re")) q(".re").onchange = (e) => {
+        const v = e.target.value;
+        if (v && !inWeek(v)) return bad(e.target, `Ngày kết thúc phải trong tuần ${dm(nxtStart())} – ${dm(nxtEnd())}.`);
+        if (v && r.b && v <= r.b) return bad(e.target, "Ngày kết thúc phải lớn hơn ngày bắt đầu.");
+        good(e.target); good(q(".rb")); r.e = v; touch();
+      };
+      if (q(".rk")) q(".rk").onchange = (e) => {
+        const raw = e.target.value;
+        if (raw === "") { good(e.target); r.kh = null; touch(); return; }
+        const v = Number(raw), now = z ? (zonePct(z, r.s, cutoff()) || { pct: 0 }).pct : 0;
+        if (!Number.isFinite(v) || v <= now || v > 100) return bad(e.target, `% hoàn thành kế hoạch phải lớn hơn ${now}% (hiện tại) và không quá 100%.`);
+        good(e.target); r.kh = Math.round(v * 10) / 10; touch();
+      };
+      if (q(".rt")) q(".rt").onchange = (e) => {
+        const raw = e.target.value;
+        if (raw === "") { good(e.target); r.th = null; touch(); return; }
+        const v = Number(raw);
+        if (!Number.isFinite(v) || v < 0 || v > 100) return bad(e.target, "% thực hiện phải từ 0 đến 100.");
+        good(e.target); r.th = Math.round(v * 10) / 10; touch();
+      };
+    });
+    const fa = $("fillActual");
+    if (fa) fa.onclick = () => {
+      let n = 0;
+      d.rows.forEach((r) => { if (r.th != null) return; const z = zoneName(d, r.z); if (!z) return; const p = zonePct(z, r.s, cutoff()); r.th = p ? p.pct : 0; n++; });
+      if (n) touch(); msg(n ? `Đã điền ${n} dòng theo thực tế.` : "Các dòng đã có % thực hiện.", true); render();
+    };
+
+    // Bảng 2
+    box.querySelectorAll(".t2 tr[data-s]").forEach((tr) => {
+      const s = tr.dataset.s, q = (c) => tr.querySelector(c);
+      const setKl = () => {
+        const v = q(".klv").value, u = q(".klu").value.trim();
+        if (v !== "" && !(Number(v) >= 0)) return bad(q(".klv"), "Khối lượng không hợp lệ.");
+        good(q(".klv"));
+        if (v === "" && !u) delete W.cfg.kl[s]; else W.cfg.kl[s] = { v: v === "" ? null : Number(v), u };
+        save("_cfg");
+        // cập nhật tại chỗ dòng này (không vẽ lại cả bảng để khỏi mất ô đang nhập)
+        const t = totals(cutoff()).find((x) => String(x.s) === s);
+        tr.querySelector("td small").textContent = `(${t.unit})`;
+        tr.querySelector("td.num").textContent = fmtNum(t.lk);
+        q(".klu").placeholder = t.unit;
+      };
+      q(".klv").onchange = setKl; q(".klu").onchange = setKl;
+      q(".t2k").onchange = (e) => {
+        const raw = e.target.value, N = nxt(); N.t2 = N.t2 || {};
+        if (raw === "") { good(e.target); delete N.t2[s]; save(wid(nxtStart())); return; }
+        const v = Number(raw), lk = totals(cutoff()).find((t) => String(t.s) === s).pct;
+        if (!Number.isFinite(v) || v <= lk || v > 100) return bad(e.target, `% kế hoạch phải lớn hơn ${lk}% (lũy kế) và không quá 100%.`);
+        good(e.target); N.t2[s] = Math.round(v * 10) / 10; save(wid(nxtStart()));
+      };
+    });
+
+    // Nhân lực – thiết bị
+    d.res = d.res || [];
+    box.querySelectorAll(".t3 tr[data-i]").forEach((tr) => {
+      const r = d.res[+tr.dataset.i];
+      [["qn", "n"], ["qq", "q"], ["qg", "g"]].forEach(([c, k]) => (tr.querySelector("." + c).onchange = (e) => { r[k] = e.target.value; touch(); }));
+    });
+    box.querySelectorAll("[data-qdel]").forEach((b) => (b.onclick = () => { d.res.splice(+b.dataset.qdel, 1); touch(); render(); }));
+    if ($("qAdd")) $("qAdd").onclick = () => { d.res.push({ n: "", q: "", g: "" }); render(); const l = box.querySelectorAll(".t3 .qn"); if (l.length) l[l.length - 1].focus(); };
+    if ($("qCopy")) $("qCopy").onclick = () => { const src = (A ? cur() : docOf(addDays(curStart(), -7))).res || []; d.res = src.map((r) => ({ ...r })); touch(); render(); };
+  }
+
+  // ---------- Xuất trang báo cáo ----------
+  function wrap(c, text, maxW) {
+    const words = String(text ?? "").split(/\s+/).filter(Boolean), lines = []; let line = "";
+    words.forEach((w) => { const t = line ? line + " " + w : w; if (c.measureText(t).width > maxW && line) { lines.push(line); line = w; } else line = t; });
+    if (line) lines.push(line);
+    return lines.length ? lines : [""];
+  }
+  const FONT = "Cambria, 'Times New Roman', Georgia, serif";
+  // cols: [{w, h(tiêu đề)}]; rows: [{group}] | [{cells}] ; trả về chiều cao
+  function drawTable(c, x, y, cols, rows, fs, draw) {
+    const pad = fs * 0.4, lh = fs * 1.2, gap = 3;
+    c.font = `bold ${fs}px ${FONT}`;
+    const hl = cols.map((k) => wrap(c, k.h, k.w - 2 * pad)), hh = Math.max(...hl.map((l) => l.length)) * lh + 2 * pad;
+    let yy = y;
+    if (draw) {
+      let xx = x;
+      cols.forEach((k, i) => {
+        c.fillStyle = BLUE; c.fillRect(xx, yy, k.w - gap, hh - gap);
+        c.fillStyle = "#fff"; c.textAlign = "center"; c.textBaseline = "middle";
+        hl[i].forEach((t, j) => c.fillText(t, xx + k.w / 2, yy + pad + lh * (j + 0.5) + (hh - 2 * pad - hl[i].length * lh) / 2));
+        xx += k.w;
+      });
+    }
+    yy += hh;
+    const tw = cols.reduce((a, k) => a + k.w, 0);
+    rows.forEach((r, ri) => {
+      if (r.group !== undefined) {
+        const rh = lh + 2 * pad;
+        if (draw) {
+          c.fillStyle = "#cfd5e3"; c.fillRect(x, yy, tw - gap, rh - gap);
+          c.font = `bold ${fs}px ${FONT}`; c.fillStyle = "#111"; c.textAlign = "center"; c.textBaseline = "middle";
+          c.fillText(r.group, x + tw / 2, yy + rh / 2);
+        }
+        yy += rh; return;
+      }
+      c.font = `${fs}px ${FONT}`;
+      const cl = r.cells.map((t, i) => wrap(c, t, cols[i].w - 2 * pad));
+      const rh = Math.max(...cl.map((l) => l.length)) * lh + 2 * pad;
+      if (draw) {
+        let xx = x;
+        cols.forEach((k, i) => {
+          c.fillStyle = ri % 2 ? "#e6e9f1" : "#d7dbe6"; c.fillRect(xx, yy, k.w - gap, rh - gap);
+          c.fillStyle = "#222"; c.textAlign = "left"; c.textBaseline = "middle";
+          cl[i].forEach((t, j) => c.fillText(t, xx + pad, yy + pad + lh * (j + 0.5)));
+          xx += k.w;
+        });
+      }
+      yy += rh;
+    });
+    return yy - y;
+  }
+  function tableData(tab) {
+    const A = tab === "A", d = A ? nxt() : cur(), asof = cutoff(), T = totals(asof), t2 = nxt().t2 || {};
+    const rows1 = [];
+    d.zones.forEach((z) => {
+      const rs = d.rows.filter((r) => r.z === z.id);
+      rows1.push({ group: z.n });
+      rs.forEach((r) => rows1.push({ cells: [r.n, dm(r.b), dm(r.e), pctTxt(r.kh), A ? "" : pctTxt(r.th)] }));
+    });
+    const rows2 = T.map((r) => ({ cells: [`${r.name} (${r.unit})`, fmtNum(r.kl), fmtNum(r.lk), `${r.pct}%`, pctTxt(t2[r.s])] }));
+    const rows3 = (d.res || []).filter((r) => r.n || r.q).map((r) => ({ cells: [r.n, r.q, r.g] }));
+    return { d, rows1, rows2, rows3 };
+  }
+  async function renderPage(tab) {
+    const A = tab === "A", prj = P(), { d, rows1, rows2, rows3 } = tableData(tab);
+    const Wd = 3840, H = 2160, cv = document.createElement("canvas"); cv.width = Wd; cv.height = H;
+    const c = cv.getContext("2d");
+    c.fillStyle = "#fff"; c.fillRect(0, 0, Wd, H);
+    // Chân trang
+    const footY = H - 120;
+    c.fillStyle = "#0a6cbf"; c.fillRect(40, footY, Wd - 80, 70);
+    // Logo
+    try {
+      const lg = new Image(); lg.src = "img/logo-daidung.png"; await lg.decode();
+      const lh = 200, lw = (lg.width / lg.height) * lh; c.drawImage(lg, 230 - lw / 2, 70, lw, lh);
+    } catch (e) {}
+    // Tiêu đề: phần nhà/mặt bằng màu đỏ, phần đầu màu xanh
+    const title = titleOf(tab), [house, kind] = ctx.splitName(ctx.projName());
+    const tail = `${kind} ${house}`.toLocaleUpperCase("vi");
+    const k = title.toLocaleUpperCase("vi").lastIndexOf(tail);
+    const t1 = k > 0 ? title.slice(0, k) : title, t2 = k > 0 ? title.slice(k) : "";
+    let tf = 92; c.font = `bold ${tf}px ${FONT}`;
+    while (c.measureText(title).width > Wd - 700 && tf > 50) { tf -= 4; c.font = `bold ${tf}px ${FONT}`; }
+    const tw = c.measureText(title).width, tx = Math.max(560, (Wd + 460) / 2 - tw / 2);
+    c.textAlign = "left"; c.textBaseline = "alphabetic";
+    c.fillStyle = BLUE; c.fillText(t1, tx, 190);
+    c.fillStyle = "#e60000"; c.fillText(t2, tx + c.measureText(t1).width, 190);
+
+    // Cột phải: mặt bằng + bảng 2
+    const rx = 1580, rw = Wd - rx - 60;
+    const c2 = [{ w: rw * 0.27, h: "Công tác" }, { w: rw * 0.14, h: "KL tổng" }, { w: rw * 0.17, h: A ? "KLT lũy kế tuần trước" : "KLT lũy kế tuần này" },
+      { w: rw * 0.22, h: A ? "% thi công lũy kế tuần trước" : "% thi công lũy kế tuần này" }, { w: rw * 0.2, h: A ? "% kế hoạch tuần này" : "% kế hoạch tuần tới" }];
+    let fs2 = 42; while (drawTable(c, 0, 0, c2, rows2, fs2, false) > 640 && fs2 > 24) fs2 -= 2;
+    const t2h = drawTable(c, 0, 0, c2, rows2, fs2, false);
+    const t2y = footY - 30 - t2h, my0 = 240, mh = t2y - 30 - my0;
+    const sc = Math.min(rw / prj.width, mh / prj.height), mw = prj.width * sc, mhh = prj.height * sc;
+    const mx = rx + (rw - mw) / 2, my = my0 + (mh - mhh) / 2;
+    await ctx.drawPlanOn(c, prj, ctx.data, cutoff(), mx, my, sc, W.colored);
+    // Vùng
+    const fsz = Math.max(60, Math.min(110, mw / 22));
+    d.zones.forEach((z, i) => {
+      c.beginPath(); c.moveTo(mx + z.p[0] * sc, my + z.p[1] * sc);
+      for (let j = 2; j < z.p.length; j += 2) c.lineTo(mx + z.p[j] * sc, my + z.p[j + 1] * sc);
+      c.closePath();
+      c.globalAlpha = 0.38; c.fillStyle = "#1f5aa8"; c.fill();
+      c.globalAlpha = 0.95; c.strokeStyle = "#163f7a"; c.lineWidth = 6; c.stroke(); c.globalAlpha = 1;
+    });
+    d.zones.forEach((z, i) => {
+      const bb = bbox(z.p), bw = fsz * 1.6, bh = fsz * 1.3;
+      let bx = mx + bb.x1 * sc - bw - 14, by = my + bb.y0 * sc + 14;
+      c.fillStyle = BLUE; c.fillRect(bx, by, bw, bh);
+      c.strokeStyle = "#e60000"; c.lineWidth = 5; c.strokeRect(bx + bw * 0.22, by + bh * 0.12, bw * 0.56, bh * 0.76);
+      c.fillStyle = "#fff"; c.font = `${fsz}px ${FONT}`; c.textAlign = "center"; c.textBaseline = "middle";
+      c.fillText(String(i + 1), bx + bw / 2, by + bh / 2 + fsz * 0.05);
+    });
+    drawTable(c, rx, t2y, c2, rows2, fs2, true);
+
+    // Cột trái: bảng 1, nhân lực – thiết bị, chữ ký, ngày
+    const lx = 50, lw2 = rx - lx - 50;
+    const c1 = [{ w: lw2 * 0.37, h: "Công tác" }, { w: lw2 * 0.15, h: "Bắt đầu" }, { w: lw2 * 0.15, h: "Kết thúc" }, { w: lw2 * 0.165, h: "% hoàn thành kế hoạch" }, { w: lw2 * 0.165, h: "% thực hiện trong tuần" }];
+    const c3 = [{ w: lw2 * 0.55, h: "Nội dung CBKT/ thiết bị" }, { w: lw2 * 0.22, h: "Số lượng" }, { w: lw2 * 0.23, h: "Ghi chú" }];
+    const ly0 = 400, signH = 330, avail = footY - 40 - signH - ly0;
+    const rows1x = rows1.length ? rows1 : [{ cells: ["(chưa khoanh vùng)", "", "", "", ""] }];
+    let fs1 = 42;
+    const need = (f) => drawTable(c, 0, 0, c1, rows1x, f, false) + (rows3.length ? 50 + drawTable(c, 0, 0, c3, rows3, f, false) : 0);
+    while (need(fs1) > avail && fs1 > 18) fs1 -= 2;
+    let ly = ly0 + drawTable(c, lx, ly0, c1, rows1x, fs1, true);
+    if (rows3.length) ly += 50 + drawTable(c, lx, ly + 50, c3, rows3, fs1, true);
+    const sy = Math.max(ly + 90, footY - signH + 60);
+    c.fillStyle = "#111"; c.font = `bold 52px ${FONT}`; c.textAlign = "center"; c.textBaseline = "alphabetic";
+    c.fillText("Kỹ thuật hiện trường", lx + lw2 * 0.24, sy);
+    c.fillText("Chỉ Huy Trưởng", lx + lw2 * 0.74, sy);
+    c.fillStyle = "#2f4f8f"; c.font = `56px ${FONT}`; c.textAlign = "left";
+    c.fillText(ctx.fmt(dateOf(tab)), lx + 110, footY - 30);
+    return cv;
+  }
+  const fileBase = (tab) => `${tab === "A" ? "KeHoachTuan" : "BaoCaoTuan"}_${P().id}_${tab === "A" ? nxtStart() : curStart()}`;
+  async function exportPng() {
+    try {
+      const cv = await renderPage(W.tab), a = document.createElement("a");
+      a.download = fileBase(W.tab) + ".png"; a.href = cv.toDataURL("image/png"); a.click();
+    } catch (e) { msg("Xuất ảnh lỗi: " + e.message); }
+  }
+  async function exportPdf() {
+    try {
+      msg("Đang tạo PDF…", true);
+      const lib = await ctx.loadScript(ctx.JSPDF_URL, "jspdf"), cv = await renderPage(W.tab);
+      const doc = new lib.jsPDF({ orientation: "landscape", unit: "mm", format: "a3", compress: true });
+      const pw = 420, ph = 297, m = 6, k = Math.min((pw - 2 * m) / cv.width, (ph - 2 * m) / cv.height), w = cv.width * k, h = cv.height * k;
+      doc.addImage(cv.toDataURL("image/jpeg", 0.92), "JPEG", (pw - w) / 2, (ph - h) / 2, w, h, undefined, "FAST");
+      doc.setProperties({ title: titleOf(W.tab), creator: "CFTN" });
+      doc.save(fileBase(W.tab) + ".pdf");
+      msg("Đã xuất PDF.", true);
+    } catch (e) { msg("Xuất PDF lỗi: " + e.message); }
+  }
+
+  // ---------- Gắn sự kiện thanh công cụ ----------
+  function bind() {
+    $("wkPrev").onclick = () => setStart(addDays(W.start, -7));
+    $("wkNext").onclick = () => setStart(addDays(W.start, 7));
+    $("wkStart").onchange = (e) => setStart(e.target.value);
+    $("zRect").onclick = () => setTool(W.tool === "rect" ? null : "rect");
+    $("zPoly").onclick = () => setTool(W.tool === "poly" ? null : "poly");
+    $("zDone").onclick = closePoly;
+    $("zCancel").onclick = () => setTool(null);
+    $("wkColor").onchange = (e) => { W.colored = e.target.checked; applyAsof(); };
+    // Chỉ vẽ lại bảng khi con trỏ rời hẳn khỏi bảng (không làm mất ô đang nhập)
+    $("wksec").addEventListener("focusout", (e) => {
+      const to = e.relatedTarget;
+      if (to && to.closest && to.closest("#wksec")) return;
+      setTimeout(() => {
+        const a = document.activeElement;
+        if (W.pendingRender && !(a && a.closest && a.closest("#wksec"))) render();
+      }, 0);
+    });
+    $("wkPng").onclick = exportPng;
+    $("wkPdf").onclick = exportPdf;
+    document.addEventListener("keydown", (e) => {
+      if (!W.active || W.tool !== "poly") return;
+      if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+      if (e.key === "Enter") { e.preventDefault(); closePoly(); }
+      else if (e.key === "Escape") setTool(null);
+      else if (e.key === "Backspace" && W.draft.length) { e.preventDefault(); W.draft.pop(); setTool("poly"); }
+    });
+  }
+
+  return {
+    get active() { return W.active; },
+    bind, setActive, stop,
+    onProject() { setTool(null); if (W.active) { watch(); applyAsof(); render(); drawZones(); } },
+    onData() { if (W.active) requestRender(); },
+    drawZones,
+    wantsRect: () => W.active && W.tool === "rect",
+    drawing: () => W.active && !!W.tool,
+    addRect, tap,
+    handleText() {
+      if (W.tool === "rect") return "Vẽ vùng: kéo 1 ngón để khoanh, 2 ngón để di chuyển";
+      if (W.tool === "poly") return `Vẽ đa giác: ${W.draft.length} đỉnh – chạm đỉnh đầu để đóng`;
+      return W.tab === "A" ? `Kế hoạch tuần ${dm(nxtStart())} – ${dm(nxtEnd())}` : `Báo cáo tuần ${dm(curStart())} – ${dm(curEnd())}`;
+    },
+  };
+}

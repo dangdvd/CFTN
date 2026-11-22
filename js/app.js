@@ -1,4 +1,5 @@
 import { OWNER_EMAILS } from "./config.js";
+import { initWeekly } from "./weekly.js";
 
 // ===================== Hằng số =====================
 const STEPS = [
@@ -231,6 +232,7 @@ function cleanup() {
   if (unsubMong) { unsubMong(); unsubMong = null; }
   if (unsubRoles) { unsubRoles(); unsubRoles = null; }
   data = {}; sel.clear(); online = false; lastMsg = null;
+  if (WK) WK.stop();
 }
 
 // ===================== Ứng dụng =====================
@@ -269,6 +271,7 @@ async function switchProject(id) {
   document.title = P.name + " – " + P.title;
   buildMap(); requestAnimationFrame(() => fit(isMobile()));
   paint(); renderPanel();
+  WK.onProject();
   setStatus("Đang tải dữ liệu…");
   const timer = setTimeout(() => setStatus("Chưa kết nối được dữ liệu – đang thử lại…", "warn"), 10000);
   const pid = P.id;
@@ -277,7 +280,7 @@ async function switchProject(id) {
     data = remapData(P, d);
     if (!fromCache) migrateRemap(d);
     if (!fromCache && !online) { clearTimeout(timer); online = true; setStatus("Trực tuyến", "ok"); }
-    if (!saving) { paint(); renderPanel(); }
+    if (!saving) { paint(); renderPanel(); WK.onData(); }
   }, (err) => { clearTimeout(timer); setStatus("Lỗi dữ liệu: " + (err.code || err.message), "warn"); });
 }
 
@@ -398,6 +401,7 @@ function buildMap() {
     nodes[n] = { g, r, tt };
   });
   vb.w = P.width; vb.h = P.height; setVB();
+  WK.drawZones();
   const lg = [`<span><i class="sw" style="background:#fff"></i>Chưa thi công</span>`]
     .concat(prjSteps(P).map((i) => STEPS[i]).map((s) => `<span><i class="sw" style="background:${s.color};opacity:.8"></i>${s.name}</span>`));
   $("legend").innerHTML = lg.join("");
@@ -467,6 +471,8 @@ function bindUI() {
   function resetGesture(e) {
     const a = [...ptrs.values()];
     hideBox();
+    // Tab Kế hoạch tuần: kéo khung để khoanh vùng chữ nhật
+    if (a.length === 1 && e && e.type === "pointerdown" && WK.wantsRect()) { gest = { type: "zrect", x: a[0].x, y: a[0].y }; return; }
     // Quét chọn: bật nút "Quét chọn", hoặc giữ Ctrl/Shift khi kéo chuột (Alt = bỏ chọn)
     if (a.length === 1 && e && e.type === "pointerdown" && canEdit() && (boxMode || (e.pointerType === "mouse" && (e.ctrlKey || e.shiftKey))))
       gest = { type: "box", x: a[0].x, y: a[0].y, rm: e.altKey };
@@ -494,9 +500,9 @@ function bindUI() {
       gest.d = d; gest.mx = mx; gest.my = my;
       return;
     }
-    if (gest.type === "box") {
+    if (gest.type === "box" || gest.type === "zrect") {
       if (!moved && Math.hypot(e.clientX - gest.x, e.clientY - gest.y) > 6) moved = true;
-      if (moved) drawBox(gest, e.clientX, e.clientY);
+      if (moved) { drawBox(gest, e.clientX, e.clientY); if (gest.type === "zrect") $("selbox").setAttribute("class", "zonebox"); }
       return;
     }
     if (gest.type === "pan") {
@@ -509,8 +515,12 @@ function bindUI() {
     if (!ptrs.has(e.pointerId)) return;
     const tap = ptrs.size === 1 && !moved && e.type === "pointerup";
     if (gest && gest.type === "box" && moved && ptrs.size === 1 && e.type === "pointerup") boxSelect(gest, e.clientX, e.clientY);
+    if (gest && gest.type === "zrect" && moved && ptrs.size === 1 && e.type === "pointerup") {
+      hideBox(); const a = toSvgPt(gest.x, gest.y), b = toSvgPt(e.clientX, e.clientY); WK.addRect(a, b);
+    }
     ptrs.delete(e.pointerId);
-    if (tap) {
+    if (tap && WK.active) WK.tap(toSvgPt(e.clientX, e.clientY));
+    else if (tap) {
       const el = document.elementFromPoint(e.clientX, e.clientY), g = el && el.closest && el.closest(".mong");
       if (g) clickMong(g.dataset.n); else if (!multi) { sel.clear(); paint(); renderPanel(); setSheet(false); }
     }
@@ -525,6 +535,7 @@ function bindUI() {
   svg.addEventListener("pointerup", (e) => {
     if (e.pointerType !== "touch" || moved) return;
     const now = Date.now();
+    if (WK.drawing()) return;
     if (now - lastTap < 300) { zoomAt(2, e.clientX, e.clientY); lastTap = 0; } else lastTap = now;
   });
 
@@ -550,6 +561,8 @@ function bindUI() {
   $("kindSel").onchange = () => switchProject($("kindSel").value);
   window.addEventListener("hashchange", () => { const id = currentHashId(); if (me && role && (!P || P.id !== id)) switchProject(id); });
   $("today").onclick = () => { $("asof").value = todayStr(); paint(); };
+  document.querySelectorAll(".viewtabs button").forEach((b) => (b.onclick = () => WK.setActive(b.dataset.view === "week")));
+  WK.bind();
   $("logoutBtn").onclick = () => be.signOut();
   $("usersBtn").onclick = openUsers;
   $("usersClose").onclick = closeUsers;
@@ -634,6 +647,7 @@ const isMobile = () => window.matchMedia("(max-width:820px)").matches;
 function setSheet(open) { $("aside").classList.toggle("open", !!open); updateHandle(); }
 function updateHandle() {
   const t = $("handleText"); if (!t || !P) return;
+  if (WK.active) { t.textContent = WK.handleText(); return; }
   if (sel.size === 1 && !multi) {
     const n = [...sel][0], l = level(n, $("asof").value);
     t.textContent = `${itemName(n)} – ${l === 0 ? (isCell(n) ? "Chưa lấp đất" : "Chưa thi công") : STEPS[l - 1].name}`;
@@ -874,6 +888,35 @@ function loadScript(url, globalName) {
   });
 }
 
+// Vẽ ảnh nền mặt bằng tại (ox, oy) với tỉ lệ s; colored = tô màu tiến độ các cấu kiện
+async function drawPlanOn(c, prj, map, asof, ox, oy, s, colored) {
+  const img = new Image(); img.src = prj.image; await img.decode();
+  c.drawImage(img, ox, oy, prj.width * s, prj.height * s);
+  if (!colored) return;
+  const X = (v) => ox + v * s, Y = (v) => oy + v * s;
+  (prj.cells || []).forEach(({ n, t: label, r: rings, l: lb, f }) => {
+    const l = levelIn(prj, map, n, asof);
+    c.beginPath();
+    rings.forEach((p) => { c.moveTo(X(p[0]), Y(p[1])); for (let i = 2; i < p.length; i += 2) c.lineTo(X(p[i]), Y(p[i + 1])); c.closePath(); });
+    if (l) { c.globalAlpha = 0.45; c.fillStyle = colorOf(l); c.fill("evenodd"); }
+    c.globalAlpha = 0.7; c.strokeStyle = "#7030A0"; c.lineWidth = 2; c.setLineDash([10, 8]); c.stroke(); c.setLineDash([]);
+    c.globalAlpha = 0.75; c.fillStyle = "#4a1d6e"; c.font = `${Math.max(14, f * s * 0.8)}px Arial`; c.textAlign = "center"; c.textBaseline = "middle";
+    c.fillText("O" + label, X(lb[0]), Y(lb[1])); c.globalAlpha = 1;
+  });
+  prj.geo.forEach(({ n, t: lbl, p, l: lb, a, f }) => {
+    const l = levelIn(prj, map, n, asof);
+    c.beginPath(); c.moveTo(X(p[0]), Y(p[1]));
+    for (let i = 2; i < p.length; i += 2) c.lineTo(X(p[i]), Y(p[i + 1]));
+    c.closePath();
+    c.globalAlpha = l === 0 ? 0.55 : 0.72; c.fillStyle = colorOf(l); c.fill();
+    c.globalAlpha = 0.6; c.strokeStyle = "#334155"; c.lineWidth = 1.5; c.stroke();
+    c.globalAlpha = 1; c.fillStyle = "#0f172a";
+    c.font = `bold ${Math.max(14, f * s)}px Arial`; c.textAlign = "center"; c.textBaseline = "middle";
+    c.save(); c.translate(X(lb[0]), Y(lb[1])); if (a) c.rotate((a * Math.PI) / 180); c.fillText(lbl || n, 0, 0); c.restore();
+  });
+  c.globalAlpha = 1;
+}
+
 // Vẽ mặt bằng đã tô màu + tiêu đề + bảng tổng hợp lên canvas
 async function renderPlanCanvas(prj, map, asof) {
   // Mặt bằng dẹt (nhà sấy phun): bảng tổng hợp ở dưới.
@@ -892,29 +935,8 @@ async function renderPlanCanvas(prj, map, asof) {
   cv.width = W; cv.height = head + mapH + foot;
   const c = cv.getContext("2d");
   c.fillStyle = "#fff"; c.fillRect(0, 0, cv.width, cv.height);
-  const img = new Image(); img.src = prj.image; await img.decode();
-  c.drawImage(img, 0, head, mapW, mapH);
+  await drawPlanOn(c, prj, map, asof, 0, head, s, true);
   const { cnt, tot } = statsIn(prj, map, asof), cs = prj.cells ? (prj.cellStep ?? 5) : -1;
-  (prj.cells || []).forEach(({ n, t: label, r: rings, l: lb, f }) => {
-    const l = levelIn(prj, map, n, asof);
-    c.beginPath();
-    rings.forEach((p) => { c.moveTo(p[0] * s, head + p[1] * s); for (let i = 2; i < p.length; i += 2) c.lineTo(p[i] * s, head + p[i + 1] * s); c.closePath(); });
-    if (l) { c.globalAlpha = 0.45; c.fillStyle = colorOf(l); c.fill("evenodd"); }
-    c.globalAlpha = 0.7; c.strokeStyle = "#7030A0"; c.lineWidth = 2; c.setLineDash([10, 8]); c.stroke(); c.setLineDash([]);
-    c.globalAlpha = 0.75; c.fillStyle = "#4a1d6e"; c.font = `${Math.max(14, f * s * 0.8)}px Arial`; c.textAlign = "center"; c.textBaseline = "middle";
-    c.fillText("O" + label, lb[0] * s, head + lb[1] * s); c.globalAlpha = 1;
-  });
-  prj.geo.forEach(({ n, t: lbl, p, l: lb, a, f }) => {
-    const l = levelIn(prj, map, n, asof);
-    c.beginPath(); c.moveTo(p[0] * s, head + p[1] * s);
-    for (let i = 2; i < p.length; i += 2) c.lineTo(p[i] * s, head + p[i + 1] * s);
-    c.closePath();
-    c.globalAlpha = l === 0 ? 0.55 : 0.72; c.fillStyle = colorOf(l); c.fill();
-    c.globalAlpha = 0.6; c.strokeStyle = "#334155"; c.lineWidth = 1.5; c.stroke();
-    c.globalAlpha = 1; c.fillStyle = "#0f172a";
-    c.font = `bold ${Math.max(14, f * s)}px Arial`; c.textAlign = "center"; c.textBaseline = "middle";
-    c.save(); c.translate(lb[0] * s, head + lb[1] * s); if (a) c.rotate((a * Math.PI) / 180); c.fillText(lbl || n, 0, 0); c.restore();
-  });
   // Tiêu đề
   c.fillStyle = "#111"; c.textAlign = "center"; c.textBaseline = "alphabetic";
   c.font = "bold 58px Arial"; c.fillText(prj.title, W / 2, 72);
@@ -1100,5 +1122,17 @@ async function addUser(e) {
     $("usersMsg").textContent = `Đã thêm ${email} (${RSEL[r]}${r === "none" ? " – hãy chọn quyền theo từng nhà bên dưới" : " – tất cả nhà"}).`; $("addUser").reset();
   } catch (err) { $("usersMsg").textContent = "Lỗi: " + (err.code || err.message); }
 }
+
+// ===================== Tab Kế hoạch – Báo cáo tuần =====================
+const WK = initWeekly({
+  get P() { return P; }, get data() { return data; }, get be() { return be; }, get me() { return me; },
+  get online() { return online; },
+  canEdit, $, esc, fmt, todayStr, STEPS, stepsFor, prjSteps, levelIn, statsIn, isCell, U, splitName,
+  projName: () => (PROJECTS.find((x) => x.id === P.id) || P).name,
+  setStatus, loadScript, JSPDF_URL, drawPlanOn, paint, isMobile, setSheet, updateHandle,
+  pxToSvg: (px) => { const r = $("map").getBoundingClientRect(); return r.width ? (px * vb.w) / r.width : px; },
+  shortLabel, itemName,
+  clearSel: () => { sel.clear(); multi = false; setBox(false); $("multiBtn").classList.remove("on"); paint(); renderPanel(); },
+});
 
 boot();

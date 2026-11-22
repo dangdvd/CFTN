@@ -40,25 +40,43 @@
   <div class="toolbar">
     <label><span class="lbl">Nhà</span> <select id="houseSel" class="projsel"></select></label>
     <label><span class="lbl">Mặt bằng</span> <select id="kindSel" class="projsel"></select></label>
-    <span class="sep"></span>
-    <label><span class="lbl">Xem tiến độ đến ngày</span> <input type="date" id="asof" title="Xem tiến độ đến ngày"></label>
-    <button id="today">Hôm nay</button>
-    <span class="sep"></span>
-    <button id="multiBtn" class="ed" title="Bấm lần lượt nhiều cấu kiện rồi cập nhật cùng lúc">Chọn nhiều</button>
-    <button id="boxBtn" class="ed" title="Kéo khung để chọn: trái→phải chọn cấu kiện nằm trọn trong khung, phải→trái chọn cấu kiện chạm khung (máy tính: giữ Ctrl hoặc Shift rồi kéo; thêm Alt để bỏ chọn)">⬚ Quét chọn</button>
-    <button id="clearSel">Bỏ chọn</button>
-    <span class="sep"></span>
-    <button id="impBtn" class="adm" hidden title="Chọn file Excel highlight – tự nhận các sheet NSP_Mong, NSP_DaKieng, NKho_Mong, NKho_DaKieng">⬆ Nhập từ Excel</button>
+    <span class="viewtabs" role="tablist">
+      <button data-view="track" class="on" title="Tô màu và cập nhật tiến độ từng cấu kiện">Theo dõi</button>
+      <button data-view="week" title="Khoanh vùng lập kế hoạch tuần tới và báo cáo tuần vừa xong">📅 Kế hoạch – Báo cáo tuần</button>
+    </span>
+    <span class="sep trk"></span>
+    <label class="trk"><span class="lbl">Xem tiến độ đến ngày</span> <input type="date" id="asof" title="Xem tiến độ đến ngày"></label>
+    <button id="today" class="trk">Hôm nay</button>
+    <span class="sep trk"></span>
+    <button id="multiBtn" class="ed trk" title="Bấm lần lượt nhiều cấu kiện rồi cập nhật cùng lúc">Chọn nhiều</button>
+    <button id="boxBtn" class="ed trk" title="Kéo khung để chọn: trái→phải chọn cấu kiện nằm trọn trong khung, phải→trái chọn cấu kiện chạm khung (máy tính: giữ Ctrl hoặc Shift rồi kéo; thêm Alt để bỏ chọn)">⬚ Quét chọn</button>
+    <button id="clearSel" class="trk">Bỏ chọn</button>
+    <span class="sep trk"></span>
+    <button id="impBtn" class="adm trk" hidden title="Chọn file Excel highlight – tự nhận các sheet NSP_Mong, NSP_DaKieng, NKho_Mong, NKho_DaKieng">⬆ Nhập từ Excel</button>
     <input type="file" id="impFile" accept=".xlsx,.xlsm,.xls" hidden>
-    <button id="expBtn" title="Tải bảng ngày hoàn thành ra file Excel">⬇ Xuất Excel</button>
-    <button id="pngBtn" title="Tải ảnh mặt bằng đã tô màu để gửi báo cáo">🖼 Xuất ảnh</button>
-    <span class="pdfwrap">
+    <button id="expBtn" class="trk" title="Tải bảng ngày hoàn thành ra file Excel">⬇ Xuất Excel</button>
+    <button id="pngBtn" class="trk" title="Tải ảnh mặt bằng đã tô màu để gửi báo cáo">🖼 Xuất ảnh</button>
+    <span class="pdfwrap trk">
       <button id="pdfBtn" title="Xuất PDF khổ A3 để in / gửi báo cáo">📄 Xuất PDF ▾</button>
       <div id="pdfMenu" class="menu" hidden>
         <button id="pdfOne">Mặt bằng đang xem</button>
         <button id="pdfAll">Tất cả mặt bằng (mỗi trang 1 mặt bằng)</button>
       </div>
     </span>
+    <span class="sep wk"></span>
+    <button id="wkPrev" class="wk" title="Tuần trước">◀</button>
+    <label class="wk" title="Tuần báo cáo (tuần vừa xong). Kế hoạch lập cho tuần ngay sau đó."><span class="lbl">Tuần báo cáo từ</span> <input type="date" id="wkStart"></label>
+    <span id="wkRange" class="wk wkrange"></span>
+    <button id="wkNext" class="wk" title="Tuần sau">▶</button>
+    <span class="sep wk"></span>
+    <button id="zRect" class="wk wked" title="Kéo khung trên mặt bằng để khoanh vùng chữ nhật">▭ Vẽ vùng</button>
+    <button id="zPoly" class="wk wked" title="Bấm lần lượt các đỉnh; bấm lại đỉnh đầu, nhấn Enter hoặc nút ✓ để đóng vùng">⬠ Vẽ đa giác</button>
+    <button id="zDone" class="wk primary" hidden>✓ Đóng vùng</button>
+    <button id="zCancel" class="wk" hidden>Huỷ vẽ</button>
+    <label class="wk chk" title="Tô màu tiến độ cấu kiện trên mặt bằng và trong ảnh xuất"><input type="checkbox" id="wkColor" checked> Tô màu tiến độ</label>
+    <span class="sep wk"></span>
+    <button id="wkPng" class="wk" title="Tải ảnh trang báo cáo (16:9) để dán vào PowerPoint">🖼 Xuất ảnh</button>
+    <button id="wkPdf" class="wk" title="Xuất PDF khổ A3 ngang">📄 Xuất PDF</button>
   </div>
 
   <main>
@@ -69,12 +87,13 @@
     </div>
     <aside id="aside">
       <div id="handle" class="handle"><i class="grip"></i><span id="handleText">Chi tiết & tổng hợp</span><span id="handleArrow">▲</span></div>
-      <div id="panel" class="sec"></div>
-      <div class="sec">
+      <div id="panel" class="sec trksec"></div>
+      <div id="wksec" class="sec"></div>
+      <div class="sec trksec">
         <h2>Tổng hợp (<span id="statDate"></span>)</h2>
         <table class="stats" id="stats"></table>
       </div>
-      <div class="sec">
+      <div class="sec trksec">
         <h2>Ghi chú màu</h2>
         <div class="legend" id="legend"></div>
       </div>

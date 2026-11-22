@@ -100,6 +100,17 @@ export function saveMong(projectId, n, data) {
   return F.setDoc(F.doc(db, "projects", projectId, "mong", "m" + n), data);
 }
 
+// ---------- Kế hoạch & báo cáo tuần ----------
+// projects/{id}/weeks/w{yyyy-mm-dd ngày đầu tuần} và projects/{id}/weeks/_cfg (khối lượng tổng theo công tác)
+export function watchWeek(projectId, wid, cb, err) {
+  return F.onSnapshot(F.doc(db, "projects", projectId, "weeks", wid),
+    (s) => cb(s.exists() ? s.data() : null, s.metadata), err);
+}
+
+export function saveWeek(projectId, wid, data) {
+  return F.setDoc(F.doc(db, "projects", projectId, "weeks", wid), data);
+}
+
 // Ghi nhiều móng một lần (tối đa 400 thao tác / batch)
 export async function saveMongMany(projectId, entries) {
   for (let i = 0; i < entries.length; i += 400) {

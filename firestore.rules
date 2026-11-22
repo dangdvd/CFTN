@@ -63,6 +63,15 @@ service cloud.firestore {
           && request.resource.data.h is list
           && request.resource.data.h.size() <= 30;
       }
+
+      // Kế hoạch tuần & báo cáo tuần: weeks/w{ngày đầu tuần}, weeks/_cfg (khối lượng tổng theo công tác)
+      match /weeks/{wid} {
+        allow read: if viewIn(pid);
+        allow create, update: if editIn(pid)
+          && request.resource.data.by == request.auth.uid
+          && request.resource.data.keys().hasOnly(['start', 'end', 'zones', 'rows', 't2', 'res', 'tA', 'dA', 'tB', 'dB', 'kl', 'by', 'byName', 'at']);
+        allow delete: if adminIn(pid);
+      }
     }
 
     // Mọi thứ khác: cấm

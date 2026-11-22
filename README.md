@@ -12,6 +12,12 @@ Chạy trên **GitHub Pages** (miễn phí), dữ liệu và đăng nhập dùng
 - **Ô lấp đất** (Nhà kho – Đà kiềng): 160 ô chia theo lưới trục 3-1…3-13 × 3-M…3-A; ô trục nào có đà kiềng ngăn thành vùng kín thì chia nhỏ hơn; cột biên phải ôm theo đà kiềng xiên; bỏ MF1, MF2, MF3, hố tiếp liệu
 - Nhập từ Excel: chọn file highlight, app tự nhận các sheet `NSP_Mong`, `NSP_DaKieng`, `NKho_Mong`, `NKho_DaKieng` (cột AA = Móng, AD:AI = ngày) · Xuất Excel · Xuất ảnh PNG · **Xuất PDF A3** (mặt bằng đang xem hoặc tất cả mặt bằng, mỗi trang một mặt bằng)
 - Cập nhật thời gian thực giữa nhiều người, dùng được trên điện thoại
+- **📅 Kế hoạch – Báo cáo tuần** (tab trên thanh công cụ):
+  - Chọn *Tuần báo cáo* (mặc định Thứ 7 → Thứ 6, đổi ngày bắt đầu thì app nhớ thứ đó). Số liệu chốt đến hết ngày cuối tuần báo cáo
+  - **A. Kế hoạch tuần tới**: *▭ Vẽ vùng* (kéo khung) hoặc *⬠ Vẽ đa giác* (bấm các đỉnh, bấm lại đỉnh đầu / Enter để đóng) → mỗi vùng là một tuyến; cấu kiện thuộc vùng khi tâm số hiệu nằm trong vùng. Bảng 1 tự liệt kê công tác chưa xong trong vùng; nhập ngày bắt đầu/kết thúc (trong tuần tới, kết thúc > bắt đầu), % hoàn thành kế hoạch (> % hiện tại); xoá công tác không làm bằng ×. Bảng 2: % kế hoạch tuần này (> % lũy kế tuần trước)
+  - **B. Báo cáo tuần**: lấy kế hoạch đã lập cho tuần đó, nhập % thực hiện trong tuần (nút *Điền % theo thực tế*). Bảng 2: lũy kế tuần này và % kế hoạch tuần tới (chính là % kế hoạch tuần này ở tab A của tuần sau)
+  - KL tổng mặc định = số cấu kiện/ô; nhập khối lượng thật + đơn vị (vd 32200 kg) thì KL lũy kế = KL tổng × % hoàn thành theo số cấu kiện
+  - Bảng nhân lực – thiết bị (tuỳ chọn); *🖼 Xuất ảnh* (16:9, dán vào PowerPoint) và *📄 Xuất PDF* (A3 ngang) theo mẫu báo cáo tuần
 
 ## Cài đặt lần đầu
 
@@ -46,6 +52,7 @@ Sau 1–2 phút trang chạy tại: **https://dangdvd.github.io/CFTN/**
 |---|---|
 | `index.html`, `css/style.css` | Giao diện |
 | `js/app.js` | Logic: vẽ mặt bằng, tô màu, cập nhật, Excel, quản lý người dùng |
+| `js/weekly.js` | Tab Kế hoạch – Báo cáo tuần: khoanh vùng, bảng, xuất trang báo cáo |
 | `js/backend.js` | Kết nối Firebase (Auth + Firestore) |
 | `js/config.js` | Cấu hình Firebase, email chủ |
 | `data/projects.json` | Danh sách mặt bằng |
@@ -56,6 +63,7 @@ Sau 1–2 phút trang chạy tại: **https://dangdvd.github.io/CFTN/**
 Dữ liệu trên Firestore:
 - `roles/{email}` – `{role: none|viewer|editor|admin, houses: {nsp|nk|nvp|npt1|npt2|nx|nsl: quyền}, name}`
 - `projects/{id}/mong/m{số móng}` (id: `nsp`, `nsp-mong`, `nk-mong`, `nk-dakieng`) – `{d: [6 ngày yyyy-mm-dd | null], by, byName, at, h: [lịch sử]}`
+- `projects/{id}/weeks/w{yyyy-mm-dd}` – kế hoạch/báo cáo tuần bắt đầu ngày đó `{zones, rows, t2, res, tA, dA, tB, dB}`; `projects/{id}/weeks/_cfg` – khối lượng tổng nhập tay `{kl}`
 
 Màu: Đào đất `#908700` · Bê tông lót `#00B0F0` · Cốt thép `#C00000` · Cốp pha `#FFC000` · Đổ bê tông `#00B050` · Lấp đất `#7030A0`.
 Một móng hiển thị màu của công tác **sau cùng** đã có ngày (giống công thức cột Z trong Excel).
