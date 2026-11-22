@@ -708,6 +708,18 @@ function boxSelect(g, cx, cy) {
 }
 
 const isMobile = () => window.matchMedia("(max-width:820px)").matches;
+// iPhone tự phóng to trang khi bấm vào ô nhập; nhập xong thì đặt lại tỉ lệ để thanh công cụ không bị đẩy ra ngoài màn hình
+document.addEventListener("focusout", (e) => {
+  if (!isMobile() || !e.target.matches || !e.target.matches("input,select,textarea")) return;
+  setTimeout(() => {
+    const a = document.activeElement;
+    if (a && a.matches && a.matches("input,select,textarea")) return; // đang chuyển sang ô nhập khác
+    const m = document.querySelector('meta[name="viewport"]'); if (!m) return;
+    const c = m.getAttribute("content");
+    m.setAttribute("content", c.replace(/maximum-scale=[\d.]+/, "maximum-scale=1.01"));
+    requestAnimationFrame(() => { m.setAttribute("content", c); window.scrollTo(0, 0); });
+  }, 150);
+});
 function setSheet(open) { $("aside").classList.toggle("open", !!open); updateHandle(); }
 function updateHandle() {
   const t = $("handleText"); if (!t || !P) return;
