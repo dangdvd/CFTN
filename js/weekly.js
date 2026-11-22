@@ -278,7 +278,7 @@ export function initWeekly(ctx) {
       svg.querySelectorAll("g.mong").forEach((m) => m.classList.toggle("inzone", inz.has(m.dataset.n)));
     }
     if (!W.active) return;
-    const fs = P().width / 55;
+    const fs = P().width / 110;
     pageDoc().zones.forEach((z, i) => {
       const path = document.createElementNS(NS, "polygon");
       const pts = []; for (let k = 0; k < z.p.length; k += 2) pts.push(z.p[k] + "," + z.p[k + 1]);
@@ -686,13 +686,14 @@ export function initWeekly(ctx) {
     const h3 = ["Nội dung CBKT/ thiết bị", "Số lượng", "Ghi chú"];
     const rows1x = rows1.length ? rows1 : [{ cells: ["(chưa khoanh vùng)", "", "", "", ""] }];
     const signNames = ["Kỹ thuật hiện trường", "Chỉ Huy Trưởng"];
+    const SIGN_SPACE = Math.round(300 * u);
     const cands = [];
     for (let fs = Math.round(44 * u); fs >= Math.round(22 * u); fs -= 2) {
       const c1 = autoCols(c, h1, rows1x, fs), c2 = autoCols(c, h2, rows2, fs), c3 = rows3.length ? autoCols(c, h3, rows3, fs) : null;
       const th1 = drawTable(c, 0, 0, c1, rows1x, fs, false), th2 = drawTable(c, 0, 0, c2, rows2, fs, false), th3 = c3 ? drawTable(c, 0, 0, c3, rows3, fs, false) : 0;
       c.font = `bold ${Math.max(fs * 1.2, 40 * u)}px ${FONT}`;
       const signW = signNames.reduce((a, t) => a + c.measureText(t).width, 0) + fs * 3;
-      const signH = fs * 1.2 * 1.3 + fs * 3.2 + fs * 1.5; // tên + chỗ ký + ngày
+      const signH = fs * 1.2 * 1.3 + SIGN_SPACE + fs * 1.5; // tên + chỗ ký + ngày
       for (const t2Left of [true, false]) {
         const leftW = Math.max(colsW(c1), c3 ? colsW(c3) : 0, signW, t2Left ? colsW(c2) : 0);
         const leftH = th1 + (c3 ? gap + th3 : 0) + (t2Left ? gap + th2 : 0) + gap + signH;
@@ -723,7 +724,7 @@ export function initWeekly(ctx) {
     const mw = prj.width * B.sc, mh = prj.height * B.sc;
     const mx = B.mapX + (B.mapAW - mw) / 2, my = y0 + (B.mapAH - mh) / 2;
     await ctx.drawPlanOn(c, prj, ctx.data, cutoff(), mx, my, B.sc, W.colored);
-    const fsz = Math.max(40 * u, Math.min(110 * u, mw / 24));
+    const fsz = Math.max(26 * u, Math.min(52 * u, mw / 60));
     d.zones.forEach((z) => {
       c.beginPath(); c.moveTo(mx + z.p[0] * B.sc, my + z.p[1] * B.sc);
       for (let j = 2; j < z.p.length; j += 2) c.lineTo(mx + z.p[j] * B.sc, my + z.p[j + 1] * B.sc);
@@ -732,10 +733,10 @@ export function initWeekly(ctx) {
       c.globalAlpha = 0.95; c.strokeStyle = "#163f7a"; c.lineWidth = 6 * u; c.stroke(); c.globalAlpha = 1;
     });
     d.zones.forEach((z, i) => {
-      const bb = bbox(z.p), bw = fsz * 1.6, bh = fsz * 1.3;
-      const bx = mx + bb.x1 * B.sc - bw - 12 * u, by = my + bb.y0 * B.sc + 12 * u;
+      const bb = bbox(z.p), bw = fsz * 1.25, bh = fsz * 1.2;
+      const bx = mx + bb.x1 * B.sc - bw - 4 * u, by = my + bb.y0 * B.sc + 4 * u;
       c.fillStyle = BLUE; c.fillRect(bx, by, bw, bh);
-      c.strokeStyle = "#e60000"; c.lineWidth = 5 * u; c.strokeRect(bx + bw * 0.22, by + bh * 0.12, bw * 0.56, bh * 0.76);
+      c.strokeStyle = "#e60000"; c.lineWidth = 3 * u; c.strokeRect(bx + 1.5 * u, by + 1.5 * u, bw - 3 * u, bh - 3 * u);
       c.fillStyle = "#fff"; c.font = `${fsz}px ${FONT}`; c.textAlign = "center"; c.textBaseline = "middle";
       c.fillText(String(i + 1), bx + bw / 2, by + bh / 2 + fsz * 0.05);
     });
@@ -749,7 +750,8 @@ export function initWeekly(ctx) {
 
     // ----- Chữ ký + ngày (cuối cột trái) -----
     const dateY = bottom - fs * 0.6;
-    const sy = Math.min(Math.max(ly + gap + fs, dateY - fs * 4.6), dateY - fs * 2.4);
+    // tên người ký ngay dưới bảng, phía dưới chừa trống ít nhất SIGN_SPACE để ký
+    const sy = Math.min(ly + gap * 2 + fs, dateY - SIGN_SPACE);
     c.fillStyle = "#111"; c.font = `bold ${Math.max(fs * 1.2, 40 * u)}px ${FONT}`; c.textAlign = "center"; c.textBaseline = "middle";
     c.fillText(signNames[0], lx + B.leftW * 0.25, sy);
     c.fillText(signNames[1], lx + B.leftW * 0.75, sy);
