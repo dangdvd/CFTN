@@ -221,3 +221,8 @@ table.wk tr.grp input.zn{width:150px;font-weight:600}
   .wkform{grid-template-columns:1fr 140px}
   #wksec{overflow:visible}
 }
+#zlayer .zone.zsel{fill-opacity:.4;stroke:#e60000;stroke-width:16}
+#zlayer .zmid{fill:#fff;fill-opacity:.85;stroke:#1f4e9c;stroke-width:2;vector-effect:non-scaling-stroke}
+/* Cấu kiện được tính vào vùng (≥ 50% diện tích nằm trong vùng) */
+#app.weekly .mong.inzone polygon{stroke:#0b2e6b;stroke-width:24;stroke-opacity:1}
+#app.weekly .mong.cell.inzone path{stroke:#0b2e6b;stroke-width:20;stroke-opacity:1;stroke-dasharray:none}

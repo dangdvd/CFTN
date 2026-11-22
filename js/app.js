@@ -440,7 +440,7 @@ function renderStats() {
 // ---------- Phóng to / di chuyển ----------
 function fit(cover) {
   const r = $("map").getBoundingClientRect(); if (!r.width || !r.height) return;
-  lastBox = { w: r.width, h: r.height };
+  lastBox = { w: r.width, h: r.height }; fitted = cover ? "cover" : "fit";
   const ar = r.width / r.height, iar = P.width / P.height;
   if (cover === true && ar < iar) { vb.h = P.height; vb.w = P.height * ar; vb.x = (P.width - vb.w) / 2; vb.y = 0; setVB(); return; }
   if (ar > iar) { vb.h = P.height; vb.w = P.height * ar; vb.x = -(vb.w - P.width) / 2; vb.y = 0; }
@@ -448,6 +448,7 @@ function fit(cover) {
   setVB();
 }
 function zoomAt(f, cx, cy) {
+  fitted = false;
   const svg = $("map"), r = svg.getBoundingClientRect();
   let nw = vb.w / f;
   const minW = P.width / 20, maxW = P.width * 3;
@@ -474,6 +475,11 @@ function bindUI() {
   function resetGesture(e) {
     const a = [...ptrs.values()];
     hideBox();
+    // Tab Kế hoạch tuần – Sửa vùng: kéo đỉnh / di chuyển vùng
+    if (a.length === 1 && e && e.type === "pointerdown" && WK.active) {
+      const wg = WK.down(toSvgPt(a[0].x, a[0].y), e);
+      if (wg) { gest = { type: "wk", wg, x: a[0].x, y: a[0].y }; return; }
+    }
     // Tab Kế hoạch tuần: kéo khung để khoanh vùng chữ nhật
     if (a.length === 1 && e && e.type === "pointerdown" && WK.wantsRect()) { gest = { type: "zrect", x: a[0].x, y: a[0].y }; return; }
     // Quét chọn: bật nút "Quét chọn", hoặc giữ Ctrl/Shift khi kéo chuột (Alt = bỏ chọn)
@@ -503,6 +509,11 @@ function bindUI() {
       gest.d = d; gest.mx = mx; gest.my = my;
       return;
     }
+    if (gest.type === "wk") {
+      if (!moved && Math.hypot(e.clientX - gest.x, e.clientY - gest.y) > 3) moved = true;
+      if (moved) WK.move(gest.wg, toSvgPt(e.clientX, e.clientY));
+      return;
+    }
     if (gest.type === "box" || gest.type === "zrect") {
       if (!moved && Math.hypot(e.clientX - gest.x, e.clientY - gest.y) > 6) moved = true;
       if (moved) { drawBox(gest, e.clientX, e.clientY); if (gest.type === "zrect") $("selbox").setAttribute("class", "zonebox"); }
@@ -511,13 +522,14 @@ function bindUI() {
     if (gest.type === "pan") {
       const dx = e.clientX - gest.x, dy = e.clientY - gest.y;
       if (!moved && Math.hypot(dx, dy) > 6) { moved = true; svg.classList.add("dragging"); }
-      if (moved) { vb.x = gest.vx - (dx / r.width) * vb.w; vb.y = gest.vy - (dy / r.height) * vb.h; setVB(); }
+      if (moved) { fitted = false; vb.x = gest.vx - (dx / r.width) * vb.w; vb.y = gest.vy - (dy / r.height) * vb.h; setVB(); }
     }
   });
   const endPtr = (e) => {
     if (!ptrs.has(e.pointerId)) return;
     const tap = ptrs.size === 1 && !moved && e.type === "pointerup";
     if (gest && gest.type === "box" && moved && ptrs.size === 1 && e.type === "pointerup") boxSelect(gest, e.clientX, e.clientY);
+    if (gest && gest.type === "wk" && ptrs.size === 1) WK.up(gest.wg, moved && e.type === "pointerup");
     if (gest && gest.type === "zrect" && moved && ptrs.size === 1 && e.type === "pointerup") {
       hideBox(); const a = toSvgPt(gest.x, gest.y), b = toSvgPt(e.clientX, e.clientY); WK.addRect(a, b);
     }
@@ -601,10 +613,12 @@ function toSvgPt(cx, cy) {
 }
 // Khung mặt bằng đổi kích thước (bật tab Kế hoạch tuần, kéo cửa sổ, xoay điện thoại):
 // giữ tâm và tỉ lệ đang xem, chỉnh viewBox cho khớp tỉ lệ khung mới để chuột/ngón tay không bị lệch
-let lastBox = null;
+let lastBox = null, fitted = false;
 function onMapResize() {
   const r = $("map").getBoundingClientRect();
   if (!r.width || !r.height || !P) return;
+  // đang xem vừa màn hình → thu vừa lại theo khung mới; đã phóng to/di chuyển → giữ nguyên chỗ đang xem
+  if (fitted) { fit(fitted === "cover"); return; }
   if (lastBox && lastBox.w && lastBox.h) {
     const k = vb.w / lastBox.w, cx = vb.x + vb.w / 2, cy = vb.y + vb.h / 2;
     vb.w = r.width * k; vb.h = r.height * k; vb.x = cx - vb.w / 2; vb.y = cy - vb.h / 2; setVB();

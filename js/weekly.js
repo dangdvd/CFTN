@@ -103,15 +103,40 @@ export function initWeekly(ctx) {
     return ins;
   }
   // Cấu kiện thuộc vùng: điểm đặt số hiệu (tâm) nằm trong vùng
+  // Cấu kiện thuộc vùng khi phần diện tích nằm trong vùng ≥ MIN_IN (50%).
+  // Tính bằng lưới điểm mẫu phủ lên cấu kiện (đúng cả cho đà kiềng xiên, ô sàn khoét lỗ, vùng đa giác lõm).
+  const MIN_IN = 0.5;
+  const memo = new Map();
+  function fracIn(rings, zp, zb) {
+    const b = bbox(rings[0]);
+    if (b.x1 < zb.x0 || b.x0 > zb.x1 || b.y1 < zb.y0 || b.y0 > zb.y1) return 0;
+    const w = b.x1 - b.x0, h = b.y1 - b.y0, d = Math.sqrt((w * h) / 400) || 1;
+    const nx = Math.max(4, Math.ceil(w / d)), ny = Math.max(4, Math.ceil(h / d));
+    let inE = 0, inZ = 0;
+    for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++) {
+      const x = b.x0 + ((i + 0.5) / nx) * w, y = b.y0 + ((j + 0.5) / ny) * h;
+      let e = false; rings.forEach((r) => { if (inPoly(x, y, r)) e = !e; }); // evenodd: ô sàn có lỗ khoét
+      if (!e) continue;
+      inE++; if (inPoly(x, y, zp)) inZ++;
+    }
+    return inE ? inZ / inE : 0;
+  }
+  // Trả về {geo:[đà kiềng/móng], cells:[ô sàn], all:[…]}
   function members(z) {
-    const prj = P(), out = [];
-    prj.geo.forEach((g) => { if (inPoly(g.l[0], g.l[1], z.p)) out.push(g.n); });
-    (prj.cells || []).forEach((c) => { if (inPoly(c.l[0], c.l[1], z.p)) out.push(c.n); });
+    const key = P().id + "|" + z.p.join(",");
+    if (memo.has(key)) return memo.get(key);
+    const prj = P(), zb = bbox(z.p), geo = [], cells = [];
+    prj.geo.forEach((g) => { if (fracIn([g.p], z.p, zb) >= MIN_IN) geo.push(g.n); });
+    (prj.cells || []).forEach((c) => { if (fracIn(c.r, z.p, zb) >= MIN_IN) cells.push(c.n); });
+    const out = { geo, cells, all: geo.concat(cells) };
+    if (memo.size > 200) memo.clear();
+    memo.set(key, out);
     return out;
   }
+  const countTxt = (m) => [m.geo.length ? `${m.geo.length} ${ctx.U()}` : "", m.cells.length ? `${m.cells.length} ô` : ""].filter(Boolean).join(" · ") || "0 cấu kiện";
   // % hoàn thành của công tác s trong vùng z tại ngày asof (theo số cấu kiện)
   function zonePct(z, s, asof) {
-    const prj = P(), ids = members(z).filter((n) => ctx.stepsFor(prj, n).includes(s));
+    const prj = P(), ids = members(z).all.filter((n) => ctx.stepsFor(prj, n).includes(s));
     if (!ids.length) return null;
     const done = ids.filter((n) => ctx.levelIn(prj, ctx.data, n, asof) > s).length;
     return { done, tot: ids.length, pct: pctOf(done, ids.length) };
@@ -139,12 +164,12 @@ export function initWeekly(ctx) {
   function addZone(p) {
     if (!canEdit() || W.tab !== "A") return;
     const d = nxt(), z = { id: nextZoneId(d), n: `Tuyến ${d.zones.length + 1}`, p: p.map((v) => Math.round(v * 10) / 10) };
-    if (!members(z).length) { msg("Vùng vừa vẽ không chứa cấu kiện nào – hãy vẽ lại."); drawZones(); return; }
+    if (!members(z).all.length) { msg("Vùng vừa vẽ không chứa cấu kiện nào – hãy vẽ lại."); drawZones(); return; }
     d.zones.push(z);
     const st = openSteps(z);
     st.forEach((s) => d.rows.push({ z: z.id, s, n: STEPS[s].name, b: "", e: "", kh: null, th: null }));
     touch(); render(); drawZones();
-    msg(st.length ? `${z.n}: ${members(z).length} cấu kiện, ${st.length} công tác chưa xong.` : `${z.n}: các công tác trong vùng đã xong hết.`, true);
+    msg(st.length ? `${z.n}: ${countTxt(members(z))}, ${st.length} công tác chưa xong.` : `${z.n}: các công tác trong vùng đã xong hết.`, true);
   }
   function addRect(a, b) {
     if (!W.active || W.tool !== "rect") return;
@@ -164,29 +189,100 @@ export function initWeekly(ctx) {
     W.draft = []; addZone(p); setTool("poly");
   }
   function setTool(t) {
-    W.tool = t; if (t !== "poly") W.draft = [];
+    W.tool = t; if (t !== "poly") W.draft = []; if (t !== "edit") W.selZ = null;
     $("zRect").classList.toggle("on", t === "rect");
     $("zPoly").classList.toggle("on", t === "poly");
+    $("zEdit").classList.toggle("on", t === "edit");
     $("zDone").hidden = !(t === "poly" && W.draft.length >= 3);
     $("zCancel").hidden = !t;
-    $("map").classList.toggle("boxmode", !!t);
+    $("zCancel").textContent = t === "edit" ? "✓ Xong" : "Huỷ vẽ";
+    $("map").classList.toggle("boxmode", t === "rect" || t === "poly");
     drawZones(); ctx.updateHandle();
+  }
+
+  // Sau khi sửa hình vùng: thêm công tác chưa xong mới xuất hiện, bỏ công tác không còn cấu kiện nào trong vùng
+  function syncRows(d, z) {
+    const before = d.rows.length;
+    d.rows = d.rows.filter((r) => r.z !== z.id || zonePct(z, r.s, cutoff()));
+    const removed = before - d.rows.length;
+    const have = new Set(d.rows.filter((r) => r.z === z.id).map((r) => r.s));
+    const add = openSteps(z).filter((s) => !have.has(s));
+    add.forEach((s) => d.rows.push({ z: z.id, s, n: STEPS[s].name, b: "", e: "", kh: null, th: null }));
+    d.rows.sort((x, y) => d.zones.findIndex((q) => q.id === x.z) - d.zones.findIndex((q) => q.id === y.z) || x.s - y.s);
+    return { add: add.length, removed };
+  }
+
+  // ---------- Sửa vùng: chọn vùng, kéo đỉnh, kéo chấm giữa cạnh để thêm đỉnh, Alt+bấm đỉnh để xoá, kéo trong vùng để di chuyển ----------
+  function down(pt, e) {
+    if (!W.active || W.tool !== "edit" || W.tab !== "A" || !canEdit()) return null;
+    const d = nxt(), tol = ctx.pxToSvg(e && e.pointerType === "touch" ? 18 : 10);
+    const z = d.zones.find((q) => q.id === W.selZ);
+    if (z) {
+      for (let i = 0; i < z.p.length; i += 2) {
+        if (Math.hypot(pt.x - z.p[i], pt.y - z.p[i + 1]) < tol) {
+          if (e && e.altKey) {
+            if (z.p.length > 6) { const old = z.p.slice(); z.p.splice(i, 2); return { z, kind: "vdel", old }; }
+            msg("Vùng cần ít nhất 3 đỉnh."); return { z, kind: "none" };
+          }
+          return { z, kind: "vert", i, old: z.p.slice() };
+        }
+      }
+      const n = z.p.length / 2;
+      for (let k = 0; k < n; k++) {
+        const a = k * 2, b = ((k + 1) % n) * 2, mx = (z.p[a] + z.p[b]) / 2, my = (z.p[a + 1] + z.p[b + 1]) / 2;
+        if (Math.hypot(pt.x - mx, pt.y - my) < tol) {
+          const old = z.p.slice(); z.p.splice(a + 2, 0, mx, my);
+          return { z, kind: "vert", i: a + 2, old };
+        }
+      }
+    }
+    // chọn vùng bấm trúng (vùng vẽ sau nằm trên)
+    const hit = d.zones.slice().reverse().find((q) => inPoly(pt.x, pt.y, q.p));
+    if (!hit) { if (W.selZ !== null) { W.selZ = null; drawZones(); } return null; }
+    W.selZ = hit.id; drawZones();
+    return { z: hit, kind: "move", x: pt.x, y: pt.y, old: hit.p.slice() };
+  }
+  function move(g, pt) {
+    if (g.kind === "vert") { g.z.p[g.i] = pt.x; g.z.p[g.i + 1] = pt.y; }
+    else if (g.kind === "move") { const dx = pt.x - g.x, dy = pt.y - g.y; g.z.p = g.old.map((v, k) => v + (k % 2 ? dy : dx)); }
+    else return;
+    drawZones(true);
+  }
+  function up(g, moved) {
+    if (!g || g.kind === "none") return;
+    if ((g.kind === "move" || g.kind === "vert") && !moved) {
+      if (g.kind === "vert") g.z.p = g.old; // bấm chấm giữa cạnh mà không kéo → không thêm đỉnh
+      drawZones(); return;
+    }
+    const d = nxt();
+    g.z.p = g.z.p.map((v) => Math.round(v * 10) / 10);
+    if (!members(g.z).all.length) { g.z.p = g.old; msg("Vùng sau khi sửa không còn cấu kiện nào – đã hoàn lại."); drawZones(); return; }
+    const r = syncRows(d, g.z);
+    touch(); render(); drawZones();
+    msg(`${g.z.n}: ${countTxt(members(g.z))}` + (r.add ? ` · thêm ${r.add} công tác` : "") + (r.removed ? ` · bỏ ${r.removed} công tác không còn cấu kiện` : ""), true);
   }
 
   // ---------- Vẽ vùng trên SVG ----------
   const NS = "http://www.w3.org/2000/svg";
-  function drawZones() {
+  // fast = đang kéo: không tính lại cấu kiện thuộc vùng cho nhẹ
+  function drawZones(fast) {
     const svg = $("map"); if (!svg || !P()) return;
     let g = document.getElementById("zlayer");
     if (!g) { g = document.createElementNS(NS, "g"); g.id = "zlayer"; svg.appendChild(g); }
     else svg.appendChild(g); // luôn nằm trên cùng
     g.innerHTML = "";
+    if (!fast) {
+      // viền đậm các cấu kiện được tính vào vùng (≥ 50% diện tích nằm trong vùng)
+      const inz = new Set();
+      if (W.active) pageDoc().zones.forEach((z) => members(z).all.forEach((n) => inz.add(n)));
+      svg.querySelectorAll("g.mong").forEach((m) => m.classList.toggle("inzone", inz.has(m.dataset.n)));
+    }
     if (!W.active) return;
     const fs = P().width / 55;
     pageDoc().zones.forEach((z, i) => {
       const path = document.createElementNS(NS, "polygon");
       const pts = []; for (let k = 0; k < z.p.length; k += 2) pts.push(z.p[k] + "," + z.p[k + 1]);
-      path.setAttribute("points", pts.join(" ")); path.setAttribute("class", "zone");
+      path.setAttribute("points", pts.join(" ")); path.setAttribute("class", "zone" + (z.id === W.selZ ? " zsel" : ""));
       g.appendChild(path);
       const bb = bbox(z.p), w = fs * 1.6, h = fs * 1.35, x = bb.x1 - w - fs * 0.2, y = bb.y0 + fs * 0.2;
       const r = document.createElementNS(NS, "rect");
@@ -196,6 +292,21 @@ export function initWeekly(ctx) {
       t.textContent = i + 1;
       g.append(r, t);
     });
+    const sz = pageDoc().zones.find((q) => q.id === W.selZ);
+    if (sz && W.tool === "edit") {
+      const n = sz.p.length / 2, rv = ctx.pxToSvg(7), rm = ctx.pxToSvg(5);
+      for (let k = 0; k < n; k++) {
+        const a = k * 2, b = ((k + 1) % n) * 2;
+        const m = document.createElementNS(NS, "circle");
+        m.setAttribute("cx", (sz.p[a] + sz.p[b]) / 2); m.setAttribute("cy", (sz.p[a + 1] + sz.p[b + 1]) / 2); m.setAttribute("r", rm); m.setAttribute("class", "zmid");
+        g.appendChild(m);
+      }
+      for (let k = 0; k < n; k++) {
+        const c = document.createElementNS(NS, "circle");
+        c.setAttribute("cx", sz.p[k * 2]); c.setAttribute("cy", sz.p[k * 2 + 1]); c.setAttribute("r", rv); c.setAttribute("class", "zv");
+        g.appendChild(c);
+      }
+    }
     if (W.draft.length) {
       const pl = document.createElementNS(NS, "polyline");
       pl.setAttribute("points", W.draft.map((q) => q.x + "," + q.y).join(" "));
@@ -298,12 +409,12 @@ export function initWeekly(ctx) {
       if (!A && ed) h += `<div class="actions" style="margin:0 0 6px"><button id="fillActual" title="Điền % thực hiện bằng % hoàn thành thực tế trong vùng tính đến ${ctx.fmt(asof)} (chỉ các ô còn trống)">Điền % theo thực tế</button></div>`;
       h += `<div class="tblwrap"><table class="wk t1"><thead><tr><th>Công tác</th><th>Bắt đầu</th><th>Kết thúc</th><th>% hoàn thành kế hoạch</th><th>% thực hiện trong tuần</th>${A && ed ? "<th></th>" : ""}</tr></thead><tbody>`;
       d.zones.forEach((z, zi) => {
-        const n = members(z).length;
+        const n = countTxt(members(z));
         h += `<tr class="grp"><td colspan="${A && ed ? 6 : 5}"><span class="zno">${zi + 1}</span>` +
-          (A && ed ? `<input type="text" class="zn" data-z="${z.id}" value="${esc(z.n)}"> <small class="muted">${n} ${ctx.U()}</small>
+          (A && ed ? `<input type="text" class="zn" data-z="${z.id}" value="${esc(z.n)}"> <small class="muted">${n}</small>
             <button class="link" data-zref="${z.id}" title="Thêm lại các công tác chưa xong của vùng">↻ công tác</button>
             <button class="x" data-zdel="${z.id}" title="Xoá vùng và các công tác của vùng">×</button>`
-            : `<b>${esc(z.n)}</b> <small class="muted">${n} ${ctx.U()}</small>`) + `</td></tr>`;
+            : `<b>${esc(z.n)}</b> <small class="muted">${n}</small>`) + `</td></tr>`;
         d.rows.forEach((r, ri) => {
           if (r.z !== z.id) return;
           const now = zonePct(z, r.s, asof), np = now ? now.pct : 0;
@@ -623,6 +734,10 @@ export function initWeekly(ctx) {
     $("zRect").onclick = () => setTool(W.tool === "rect" ? null : "rect");
     $("zPoly").onclick = () => setTool(W.tool === "poly" ? null : "poly");
     $("zDone").onclick = closePoly;
+    $("zEdit").onclick = () => {
+      setTool(W.tool === "edit" ? null : "edit");
+      if (W.tool === "edit") msg("Sửa vùng: bấm vào vùng để chọn · kéo chấm tròn đặc để dời đỉnh · kéo chấm rỗng giữa cạnh để thêm đỉnh · Alt + bấm đỉnh để xoá đỉnh · kéo bên trong vùng để di chuyển cả vùng.", true);
+    };
     $("zCancel").onclick = () => setTool(null);
     $("wkColor").onchange = (e) => { W.colored = e.target.checked; applyAsof(); };
     // Chỉ vẽ lại bảng khi con trỏ rời hẳn khỏi bảng (không làm mất ô đang nhập)
@@ -653,9 +768,10 @@ export function initWeekly(ctx) {
     drawZones,
     wantsRect: () => W.active && W.tool === "rect",
     drawing: () => W.active && !!W.tool,
-    addRect, tap,
+    addRect, tap, down, move, up,
     handleText() {
       if (W.tool === "rect") return "Vẽ vùng: kéo 1 ngón để khoanh, 2 ngón để di chuyển";
+      if (W.tool === "edit") return W.selZ ? "Sửa vùng: kéo đỉnh / kéo trong vùng để di chuyển" : "Sửa vùng: chạm vào vùng cần sửa";
       if (W.tool === "poly") return `Vẽ đa giác: ${W.draft.length} đỉnh – chạm đỉnh đầu để đóng`;
       return W.tab === "A" ? `Kế hoạch tuần ${dm(nxtStart())} – ${dm(nxtEnd())}` : `Báo cáo tuần ${dm(curStart())} – ${dm(curEnd())}`;
     },
