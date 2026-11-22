@@ -735,8 +735,14 @@ export function initWeekly(ctx) {
     while (c.measureText(title).width > tmax && tf > 30) { tf -= 2; c.font = `bold ${tf}px ${FONT}`; }
     const tw = c.measureText(title).width, tx = Math.max(tx0, (Wd - tw) / 2);
     c.textAlign = "left"; c.textBaseline = "middle";
-    c.fillStyle = BLUE; c.fillText(t1, tx, M + headH / 2);
-    c.fillStyle = "#e60000"; c.fillText(t2, tx + c.measureText(t1).width, M + headH / 2);
+    const ty = M + headH * 0.4;
+    c.fillStyle = BLUE; c.fillText(t1, tx, ty);
+    c.fillStyle = "#e60000"; c.fillText(t2, tx + c.measureText(t1).width, ty);
+    // Dòng thời gian dưới tiêu đề: tuần kế hoạch (A) hoặc tuần báo cáo (B)
+    const ws = A ? nxtStart() : curStart(), we = A ? nxtEnd() : curEnd();
+    const sub = `Từ ngày ${ctx.fmt(ws)} đến ngày ${ctx.fmt(we)}`;
+    c.font = `italic bold ${Math.round(tf * 0.55)}px ${FONT}`; c.fillStyle = BLUE; c.textAlign = "center";
+    c.fillText(sub, tx + tw / 2, M + headH * 0.86); c.textAlign = "left";
 
     // ----- Bố trí: thử các cỡ chữ và 2 cách đặt bảng 2, chọn cách cho mặt bằng to nhất -----
     const y0 = M + headH + 10 * u, bottom = footY - 16 * u, availH = bottom - y0, gap = Math.round(28 * u), gut = Math.round(40 * u);
