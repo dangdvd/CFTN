@@ -420,13 +420,15 @@ export function initWeekly(ctx) {
           if (A) {
             h += `<tr data-r="${ri}">
               <td>${ed ? `<input type="text" class="rn" value="${esc(r.n)}">` : esc(r.n)}</td>
-              <td><input type="date" class="rb" value="${r.b || ""}" min="${nxtStart()}" max="${nxtEnd()}"${dis}></td>
-              <td><input type="date" class="re" value="${r.e || ""}" min="${nxtStart()}" max="${nxtEnd()}"${dis}></td>
+              <td><input type="date" class="rb" value="${r.b || ""}"${dis}></td>
+              <td><input type="date" class="re" value="${r.e || ""}"${dis}></td>
               <td><input type="number" class="rk pct" value="${r.kh ?? ""}" min="${np + 1}" max="100" step="1"${dis}><small class="muted"> hiện ${np}%</small></td>
               <td class="muted">—</td>
               ${ed ? `<td><button class="x" data-rdel="${ri}" title="Bỏ công tác khỏi kế hoạch">×</button></td>` : ""}</tr>`;
           } else {
-            h += `<tr data-r="${ri}"><td>${esc(r.n)}</td><td>${dm(r.b)}</td><td>${dm(r.e)}</td><td>${pctTxt(r.kh)}</td>
+            h += `<tr data-r="${ri}"><td>${esc(r.n)}</td>` +
+              (ed ? `<td><input type="date" class="rb" value="${r.b || ""}"></td><td><input type="date" class="re" value="${r.e || ""}"></td>` : `<td>${dm(r.b)}</td><td>${dm(r.e)}</td>`) +
+              `<td>${pctTxt(r.kh)}</td>
               <td><input type="number" class="rt pct" value="${r.th ?? ""}" min="0" max="100" step="1"${dis}><small class="muted"> thực tế ${np}%</small></td></tr>`;
           }
         });
@@ -498,19 +500,15 @@ export function initWeekly(ctx) {
       const r = d.rows[+tr.dataset.r], q = (c) => tr.querySelector(c);
       const z = zoneName(d, r.z);
       if (q(".rn")) q(".rn").onchange = (e) => { r.n = e.target.value.trim() || STEPS[r.s].name; touch(); };
-      const inWeek = (v) => v >= nxtStart() && v <= nxtEnd();
-      if (q(".rb")) q(".rb").onchange = (e) => {
-        const v = e.target.value;
-        if (v && !inWeek(v)) return bad(e.target, `Ngày bắt đầu phải trong tuần ${dm(nxtStart())} – ${dm(nxtEnd())}.`);
-        if (v && r.e && r.e <= v) return bad(e.target, "Ngày bắt đầu phải trước ngày kết thúc.");
-        good(e.target); good(q(".re")); r.b = v; touch();
+      // Ngày bắt đầu / kết thúc: được trùng nhau (công tác 1 ngày), không giới hạn trong tuần (công tác có thể kéo dài).
+      // Nếu nhập sai thứ tự thì báo và trả ô về giá trị đã lưu, tránh hiện ngày mà không được lưu.
+      const setDate = (key, inp) => {
+        const v = inp.value || "", b = key === "b" ? v : r.b, e2 = key === "e" ? v : r.e;
+        if (b && e2 && e2 < b) { inp.value = r[key] || ""; return bad(inp, "Ngày kết thúc không được trước ngày bắt đầu."); }
+        good(q(".rb")); good(q(".re")); r[key] = v; touch();
       };
-      if (q(".re")) q(".re").onchange = (e) => {
-        const v = e.target.value;
-        if (v && !inWeek(v)) return bad(e.target, `Ngày kết thúc phải trong tuần ${dm(nxtStart())} – ${dm(nxtEnd())}.`);
-        if (v && r.b && v <= r.b) return bad(e.target, "Ngày kết thúc phải lớn hơn ngày bắt đầu.");
-        good(e.target); good(q(".rb")); r.e = v; touch();
-      };
+      if (q(".rb")) { q(".rb").onchange = (e) => setDate("b", e.target); q(".rb").onblur = (e) => { if ((e.target.value || "") !== (r.b || "")) setDate("b", e.target); }; }
+      if (q(".re")) { q(".re").onchange = (e) => setDate("e", e.target); q(".re").onblur = (e) => { if ((e.target.value || "") !== (r.e || "")) setDate("e", e.target); }; }
       if (q(".rk")) q(".rk").onchange = (e) => {
         const raw = e.target.value;
         if (raw === "") { good(e.target); r.kh = null; touch(); return; }
