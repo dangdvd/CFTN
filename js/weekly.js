@@ -2,7 +2,7 @@
 //  Tab "Kế hoạch – Báo cáo tuần"
 //  - Tuần báo cáo W = [start, start+6]; kế hoạch lập cho tuần tới W+1.
 //  - Dữ liệu: projects/{id}/weeks/w{ngày đầu tuần}
-//      zones: [{id, n, p:[x,y,…]}]          vùng khoanh trên mặt bằng (tuyến)
+//      zones: [{id, n, p:[x,y,…], c?, f?}]  vùng khoanh trên mặt bằng (tuyến); c = màu, f = kiểu tô
 //      rows:  [{z, s, n, b, e, kh, th}]     bảng 1: công tác theo vùng
 //      t2:    {s: %}                        % kế hoạch của tuần này (bảng 2)
 //      res:   [{n, q, g}]                   nhân lực – thiết bị (tuỳ chọn)
@@ -263,6 +263,47 @@ export function initWeekly(ctx) {
 
   // ---------- Vẽ vùng trên SVG ----------
   const NS = "http://www.w3.org/2000/svg";
+  // ---------- Màu & kiểu tô (hatch) của vùng ----------
+  const ZPAL = ["#1f5aa8", "#e67e22", "#16a34a", "#8e44ad", "#c0392b", "#0e9aa7", "#b7950b", "#6b7280"];
+  const ZFILLS = [["solid", "Tô đặc"], ["hatch", "Gạch chéo ╱"], ["hatch2", "Gạch chéo ╲"], ["cross", "Gạch ô chéo"],
+    ["grid", "Kẻ ô vuông"], ["hline", "Kẻ ngang"], ["vline", "Kẻ dọc"], ["dot", "Chấm"], ["none", "Chỉ viền"]];
+  const zIdx = (z) => pageDoc().zones.indexOf(z);
+  const zColor = (z, i) => z.c || ZPAL[(i ?? Math.max(0, zIdx(z))) % ZPAL.length];
+  const zFill = (z) => z.f || "solid";
+  // vẽ hoa văn 1 ô lặp kích thước s (dùng chung cho SVG và canvas)
+  function hatchLines(f, s) {
+    const L = [];
+    if (f === "hatch" || f === "cross") L.push([0, s, s, 0], [-s / 2, s / 2, s / 2, -s / 2], [s / 2, s * 1.5, s * 1.5, s / 2]);
+    if (f === "hatch2" || f === "cross") L.push([0, 0, s, s], [-s / 2, s / 2, s / 2, s * 1.5], [s / 2, -s / 2, s * 1.5, s / 2]);
+    if (f === "grid" || f === "hline") L.push([0, s / 2, s, s / 2]);
+    if (f === "grid" || f === "vline") L.push([s / 2, 0, s / 2, s]);
+    return L;
+  }
+  function svgPattern(defs, id, f, col, s) {
+    const pt = document.createElementNS(NS, "pattern");
+    pt.setAttribute("id", id); pt.setAttribute("patternUnits", "userSpaceOnUse"); pt.setAttribute("width", s); pt.setAttribute("height", s);
+    hatchLines(f, s).forEach(([x1, y1, x2, y2]) => {
+      const l = document.createElementNS(NS, "line");
+      l.setAttribute("x1", x1); l.setAttribute("y1", y1); l.setAttribute("x2", x2); l.setAttribute("y2", y2);
+      l.setAttribute("stroke", col); l.setAttribute("stroke-width", s * 0.13); l.setAttribute("stroke-opacity", ".85");
+      pt.appendChild(l);
+    });
+    if (f === "dot") { const c = document.createElementNS(NS, "circle"); c.setAttribute("cx", s / 2); c.setAttribute("cy", s / 2); c.setAttribute("r", s * 0.16); c.setAttribute("fill", col); c.setAttribute("fill-opacity", ".85"); pt.appendChild(c); }
+    defs.appendChild(pt);
+  }
+  // tô vùng trên canvas (xuất ảnh/PDF)
+  function canvasFill(c, z, i, s) {
+    const f = zFill(z), col = zColor(z, i);
+    if (f === "solid") { c.globalAlpha = 0.38; c.fillStyle = col; c.fill(); c.globalAlpha = 1; return; }
+    if (f === "none") return;
+    c.globalAlpha = 0.1; c.fillStyle = col; c.fill(); c.globalAlpha = 1;
+    const t = document.createElement("canvas"); t.width = t.height = Math.max(6, Math.round(s));
+    const tc = t.getContext("2d"), S = t.width;
+    tc.strokeStyle = col; tc.fillStyle = col; tc.lineWidth = Math.max(1.5, S * 0.13); tc.globalAlpha = 0.85;
+    hatchLines(f, S).forEach(([x1, y1, x2, y2]) => { tc.beginPath(); tc.moveTo(x1, y1); tc.lineTo(x2, y2); tc.stroke(); });
+    if (f === "dot") { tc.beginPath(); tc.arc(S / 2, S / 2, S * 0.16, 0, Math.PI * 2); tc.fill(); }
+    c.fillStyle = c.createPattern(t, "repeat"); c.fill();
+  }
   // fast = đang kéo: không tính lại cấu kiện thuộc vùng cho nhẹ
   function drawZones(fast) {
     const svg = $("map"); if (!svg || !P()) return;
@@ -277,15 +318,25 @@ export function initWeekly(ctx) {
       svg.querySelectorAll("g.mong").forEach((m) => m.classList.toggle("inzone", inz.has(m.dataset.n)));
     }
     if (!W.active) return;
-    const fs = P().width / 110;
+    const fs = P().width / 110, hs = P().width / 140;
+    const defs = document.createElementNS(NS, "defs"); g.appendChild(defs);
     pageDoc().zones.forEach((z, i) => {
       const path = document.createElementNS(NS, "polygon");
       const pts = []; for (let k = 0; k < z.p.length; k += 2) pts.push(z.p[k] + "," + z.p[k + 1]);
       path.setAttribute("points", pts.join(" ")); path.setAttribute("class", "zone" + (z.id === W.selZ ? " zsel" : ""));
+      const col = zColor(z, i), f = zFill(z);
+      let fill = col, fo = z.id === W.selZ ? 0.4 : 0.3;
+      if (f === "none") fo = 0;
+      else if (f !== "solid") {
+        // nền nhạt + hoa văn
+        const bg = path.cloneNode(); bg.removeAttribute("class"); bg.setAttribute("style", `fill:${col};fill-opacity:.08;stroke:none`); g.appendChild(bg);
+        svgPattern(defs, "zp" + z.id, f, col, hs); fill = `url(#zp${z.id})`; fo = 1;
+      }
+      path.setAttribute("style", `fill:${fill};fill-opacity:${fo};stroke:${z.id === W.selZ ? "#e60000" : col}`);
       g.appendChild(path);
       const bb = bbox(z.p), w = fs * 1.6, h = fs * 1.35, x = bb.x1 - w - fs * 0.2, y = bb.y0 + fs * 0.2;
       const r = document.createElementNS(NS, "rect");
-      r.setAttribute("x", x); r.setAttribute("y", y); r.setAttribute("width", w); r.setAttribute("height", h); r.setAttribute("class", "zlabel");
+      r.setAttribute("x", x); r.setAttribute("y", y); r.setAttribute("width", w); r.setAttribute("height", h); r.setAttribute("class", "zlabel"); r.setAttribute("style", `fill:${col}`);
       const t = document.createElementNS(NS, "text");
       t.setAttribute("x", x + w / 2); t.setAttribute("y", y + h / 2); t.setAttribute("font-size", fs); t.setAttribute("class", "zlabeltxt");
       t.textContent = i + 1;
@@ -409,11 +460,14 @@ export function initWeekly(ctx) {
       h += `<div class="tblwrap"><table class="wk t1"><thead><tr><th>Công tác</th><th>Bắt đầu</th><th>Kết thúc</th><th>% hoàn thành kế hoạch</th><th>% thực hiện trong tuần</th>${A && ed ? "<th></th>" : ""}</tr></thead><tbody>`;
       d.zones.forEach((z, zi) => {
         const n = countTxt(members(z));
-        h += `<tr class="grp"><td colspan="${A && ed ? 6 : 5}"><span class="zno">${zi + 1}</span>` +
+        h += `<tr class="grp"><td colspan="${A && ed ? 6 : 5}"><span class="zno" style="background:${zColor(z, zi)}">${zi + 1}</span>` +
           (A && ed ? `<input type="text" class="zn" data-z="${z.id}" value="${esc(z.n)}"> <small class="muted">${n}</small>
             <button class="link" data-zref="${z.id}" title="Thêm lại các công tác chưa xong của vùng">↻ công tác</button>
             <button class="x" data-zdel="${z.id}" title="Xoá vùng và các công tác của vùng">×</button>`
-            : `<b>${esc(z.n)}</b> <small class="muted">${n}</small>`) + `</td></tr>`;
+            : `<b>${esc(z.n)}</b> <small class="muted">${n}</small>`) +
+          (A && ed ? `<span class="zsty"><input type="color" class="zc" data-z="${z.id}" value="${zColor(z, zi)}" title="Màu vùng">` +
+            `<select class="zf" data-z="${z.id}" title="Kiểu tô vùng">${ZFILLS.map(([v, t]) => `<option value="${v}"${v === zFill(z) ? " selected" : ""}>${t}</option>`).join("")}</select></span>` : "") +
+          `</td></tr>`;
         d.rows.forEach((r, ri) => {
           if (r.z !== z.id) return;
           const now = zonePct(z, r.s, asof), np = now ? now.pct : 0;
@@ -480,6 +534,12 @@ export function initWeekly(ctx) {
 
     // Bảng 1
     box.querySelectorAll(".zn").forEach((i) => (i.onchange = () => { const z = zoneName(d, +i.dataset.z); if (z) { z.n = i.value.trim() || z.n; touch(); } }));
+    box.querySelectorAll(".zc").forEach((i) => (i.oninput = i.onchange = () => {
+      const z = zoneName(d, +i.dataset.z); if (!z) return;
+      z.c = i.value; touch(); drawZones();
+      const b = i.closest("tr").querySelector(".zno"); if (b) b.style.background = i.value;
+    }));
+    box.querySelectorAll(".zf").forEach((i) => (i.onchange = () => { const z = zoneName(d, +i.dataset.z); if (z) { z.f = i.value; touch(); drawZones(); } }));
     box.querySelectorAll("[data-zdel]").forEach((b) => (b.onclick = () => {
       if (b.dataset.ok !== "1") { b.dataset.ok = "1"; b.textContent = "Xoá vùng?"; b.style.color = "#d92d20"; b.style.fontSize = "12px"; return; }
       const id = +b.dataset.zdel; d.zones = d.zones.filter((z) => z.id !== id); d.rows = d.rows.filter((r) => r.z !== id);
@@ -726,17 +786,17 @@ export function initWeekly(ctx) {
     const mx = B.mapX + (B.mapAW - mw) / 2, my = y0 + (B.mapAH - mh) / 2;
     await ctx.drawPlanOn(c, prj, ctx.data, cutoff(), mx, my, B.sc, W.colored);
     const fsz = Math.max(26 * u, Math.min(52 * u, mw / 60));
-    d.zones.forEach((z) => {
+    d.zones.forEach((z, i) => {
       c.beginPath(); c.moveTo(mx + z.p[0] * B.sc, my + z.p[1] * B.sc);
       for (let j = 2; j < z.p.length; j += 2) c.lineTo(mx + z.p[j] * B.sc, my + z.p[j + 1] * B.sc);
       c.closePath();
-      c.globalAlpha = 0.38; c.fillStyle = "#1f5aa8"; c.fill();
-      c.globalAlpha = 0.95; c.strokeStyle = "#163f7a"; c.lineWidth = 6 * u; c.stroke(); c.globalAlpha = 1;
+      canvasFill(c, z, i, Math.max(14 * u, (prj.width / 140) * B.sc));
+      c.globalAlpha = 0.95; c.strokeStyle = zColor(z, i); c.lineWidth = 6 * u; c.stroke(); c.globalAlpha = 1;
     });
     d.zones.forEach((z, i) => {
       const bb = bbox(z.p), bw = fsz * 1.25, bh = fsz * 1.2;
       const bx = mx + bb.x1 * B.sc - bw - 4 * u, by = my + bb.y0 * B.sc + 4 * u;
-      c.fillStyle = BLUE; c.fillRect(bx, by, bw, bh);
+      c.fillStyle = zColor(z, i); c.fillRect(bx, by, bw, bh);
       c.strokeStyle = "#e60000"; c.lineWidth = 3 * u; c.strokeRect(bx + 1.5 * u, by + 1.5 * u, bw - 3 * u, bh - 3 * u);
       c.fillStyle = "#fff"; c.font = `${fsz}px ${FONT}`; c.textAlign = "center"; c.textBaseline = "middle";
       c.fillText(String(i + 1), bx + bw / 2, by + bh / 2 + fsz * 0.05);

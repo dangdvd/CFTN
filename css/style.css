@@ -212,6 +212,9 @@ table.wk td.kl{display:flex;gap:3px;min-width:120px}
 table.wk td.kl .klv{width:70px}
 table.wk td.kl .klu{width:44px}
 table.wk tr.grp input.zn{width:150px;font-weight:600}
+.zsty{display:inline-flex;gap:4px;align-items:center;margin-left:8px;vertical-align:middle}
+.zsty input[type=color]{width:30px;height:26px;padding:1px;border:1px solid var(--line);border-radius:4px;background:#fff;cursor:pointer}
+.zsty select{height:26px;font-size:12px;padding:0 4px}
 .zno{display:inline-block;min-width:22px;text-align:center;background:#1f4e9c;color:#fff;border-radius:4px;font-weight:700;margin-right:6px;padding:1px 4px}
 /* Vùng trên mặt bằng */
 #zlayer{pointer-events:none}
