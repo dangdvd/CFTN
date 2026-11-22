@@ -9,7 +9,17 @@ const STEPS = [
   { name: "Cốp pha",     color: "#FFC000" },
   { name: "Đổ bê tông",  color: "#00B050" },
   { name: "Lấp đất",     color: "#7030A0" },
+  // Công tác của ô sàn (mặt bằng có prj.cellTypes). slot = vị trí lưu trong mảng d[6] của ô
+  // (ô sàn không có Đào đất nên ô 0 dùng cho Đá 0x4 / Lát gạch con sâu)
+  { name: "Đá 0x4",           color: "#7F7F7F", slot: 0 },
+  { name: "Lát gạch con sâu", color: "#C55A11", slot: 0 },
+  { name: "Bê tông lót sàn",  color: "#00B0F0", slot: 1 },
+  { name: "Cốt thép sàn",     color: "#C00000", slot: 2 },
+  { name: "Cốp pha sàn",      color: "#FFC000", slot: 3 },
+  { name: "Đổ bê tông sàn",   color: "#00B050", slot: 4 },
 ];
+// Vị trí lưu ngày của công tác i trong mảng d
+const SLOT = (i) => (STEPS[i].slot ?? i);
 const NONE_COLOR = "#FFFFFF";
 const ROLE_LABEL = { viewer: "Chỉ xem", editor: "Cập nhật", admin: "Quản trị" };
 const ROLE_LV = { none: 0, viewer: 1, editor: 2, admin: 3 };
@@ -57,20 +67,44 @@ function norm(a) { const o = []; for (let i = 0; i < 6; i++) o.push(a && a[i] ? 
 // Mặt bằng có ô (prj.cells) thì Lấp đất được tính theo ô, đà kiềng chỉ theo dõi 5 công tác đầu.
 const isCell = (n) => /^O\d+$/.test(n);
 const ALL_STEPS = [0, 1, 2, 3, 4, 5];
-// Công tác theo dõi của mặt bằng (prj.steps), mặc định cả 6
+// Công tác theo dõi của mặt bằng (prj.steps), mặc định 6 công tác đầu
 const prjSteps = (prj) => (prj && prj.steps) || ALL_STEPS;
+// Ô sàn có thể chia loại (cell.k) với trình tự công tác riêng: prj.cellTypes = {"": [...], "A": [...], …}
+function cellOf(n, prj) {
+  prj = prj || P;
+  if (!prj._c) { prj._c = {}; (prj.cells || []).forEach((c) => (prj._c[c.n] = c)); }
+  return prj._c[n] || {};
+}
+function cellStepsOf(prj, n) {
+  if (prj.cellTypes) return prj.cellTypes[cellOf(n, prj).k || ""] || prj.cellTypes[""];
+  return [prj.cellStep ?? 5];
+}
+function cellStepSet(prj) {
+  if (!prj || !prj.cells) return new Set();
+  if (!prj._cs) prj._cs = new Set(prj.cellTypes ? Object.values(prj.cellTypes).flat() : [prj.cellStep ?? 5]);
+  return prj._cs;
+}
+const isCellStep = (prj, i) => cellStepSet(prj).has(i);
 function stepsFor(prj, n) {
   if (!prj) return ALL_STEPS;
   const base = prjSteps(prj);
   if (!prj.cells) return base;
-  const cs = prj.cellStep ?? 5;
-  return isCell(n) ? [cs] : base.filter((i) => i !== cs);
+  return isCell(n) ? cellStepsOf(prj, n) : base.filter((i) => !isCellStep(prj, i));
 }
+const dateOf = (d, i) => (d ? d[SLOT(i)] || null : null);
+// Công tác cao nhất (theo trình tự của cấu kiện) đã xong tới ngày asof; trả về chỉ số công tác + 1
 function levelIn(prj, map, n, asof) {
   const d = (map[n] && map[n].d) || [], st = stepsFor(prj, n);
-  for (let k = st.length - 1; k >= 0; k--) { const i = st[k]; if (d[i] && (!asof || d[i] <= asof)) return i + 1; }
+  for (let k = st.length - 1; k >= 0; k--) { const i = st[k], v = dateOf(d, i); if (v && (!asof || v <= asof)) return i + 1; }
   return 0;
 }
+// Công tác s của cấu kiện n đã xong (tính cả các công tác đứng trước công tác cao nhất đã xong)
+function doneIn(prj, map, n, s, asof) {
+  const l = levelIn(prj, map, n, asof); if (!l) return false;
+  const st = stepsFor(prj, n), k = st.indexOf(s);
+  return k >= 0 && k <= st.indexOf(l - 1);
+}
+const cellWord = (prj) => ((prj || P).cellTypes ? "ô sàn" : "ô lấp đất");
 function level(n, asof) { return levelIn(P, data, n, asof); }
 // Số hiệu hiển thị của ô (id giữ cố định để dữ liệu không lệch khi bỏ bớt ô)
 function cellLabel(n, prj) {
@@ -98,14 +132,12 @@ function ringsPath(rings) {
 }
 // Thống kê: cnt[i] = số cấu kiện đã xong công tác i (cộng dồn), tot[i] = tổng số cấu kiện của công tác i
 function statsIn(prj, map, asof) {
-  const cnt = [0, 0, 0, 0, 0, 0], tot = [0, 0, 0, 0, 0, 0], cs = prj.cells ? (prj.cellStep ?? 5) : -1;
-  prj.geo.forEach((g) => {
-    const l = levelIn(prj, map, g.n, asof);
-    const st = stepsFor(prj, g.n);
-    // l là công tác cao nhất đã xong; các công tác theo dõi đứng trước nó coi như đã xong
-    st.forEach((i) => { tot[i]++; if (l > i) cnt[i]++; });
+  const cnt = STEPS.map(() => 0), tot = STEPS.map(() => 0);
+  prj.geo.map((g) => g.n).concat((prj.cells || []).map((c) => c.n)).forEach((n) => {
+    const l = levelIn(prj, map, n, asof), st = stepsFor(prj, n), kl = l ? st.indexOf(l - 1) : -1;
+    // l là công tác cao nhất đã xong; các công tác đứng trước nó (theo trình tự) coi như đã xong
+    st.forEach((i, k) => { tot[i]++; if (k <= kl) cnt[i]++; });
   });
-  if (prj.cells) prj.cells.forEach((c) => { tot[cs]++; if (levelIn(prj, map, c.n, asof)) cnt[cs]++; });
   return { cnt, tot };
 }
 const colorOf = (l) => (l === 0 ? NONE_COLOR : STEPS[l - 1].color);
@@ -423,15 +455,15 @@ function paint() {
 
 function stats(asof) { return statsIn(P, data, asof).cnt; }
 function renderStats() {
-  const asof = $("asof").value, { cnt, tot } = statsIn(P, data, asof), cs = P.cells ? (P.cellStep ?? 5) : -1;
+  const asof = $("asof").value, { cnt, tot } = statsIn(P, data, asof);
   $("statDate").textContent = fmt(asof);
   let h = `<tr><td>Tổng số ${U()}</td><td>${P.geo.length}</td></tr>`;
-  if (P.cells) h += `<tr><td>Tổng số ô lấp đất</td><td>${P.cells.length}</td></tr>`;
-  STEPS.forEach((s, i) => {
-    if (!prjSteps(P).includes(i)) return;
+  if (P.cells) h += `<tr><td>Tổng số ${cellWord()}</td><td>${P.cells.length}</td></tr>`;
+  prjSteps(P).forEach((i) => {
+    const s = STEPS[i], cs = isCellStep(P, i);
     const p = tot[i] ? Math.round((cnt[i] / tot[i]) * 100) : 0;
-    const v = i === cs ? `${cnt[i]}/${tot[i]} ô (${p}%)` : `${cnt[i]} (${p}%)`;
-    h += `<tr><td>${s.name}${i === cs ? " <small class=\"muted\">(theo ô)</small>" : ""}<div class="bar"><i style="width:${p}%;background:${s.color}"></i></div></td><td>${v}</td></tr>`;
+    const v = cs ? `${cnt[i]}/${tot[i]} ô (${p}%)` : `${cnt[i]} (${p}%)`;
+    h += `<tr><td>${s.name}${cs ? " <small class=\"muted\">(theo ô)</small>" : ""}<div class="bar"><i style="width:${p}%;background:${s.color}"></i></div></td><td>${v}</td></tr>`;
   });
   $("stats").innerHTML = h;
   updateHandle();
@@ -726,18 +758,19 @@ function _renderPanel() {
 function renderSingle(n, ro) {
   const panel = $("panel"), r = rec(n), l = level(n, null), ed = canEdit(), allowed = stepsFor(P, n), cell = isCell(n);
   let h = `<div class="selhead"><b>${esc(itemName(n))}</b><small>${l === 0 ? (cell ? "Chưa lấp đất" : "Chưa thi công") : "Đã xong: " + STEPS[l - 1].name}</small></div>${ro}`;
-  if (cell) h += `<div class="note info">Ô lấp đất giữa các ${U()} – chỉ theo dõi công tác Lấp đất.</div>`;
-  else if (P.cells) h += `<div class="muted small" style="margin-bottom:8px">Lấp đất được theo dõi theo từng ô giữa các ${U()}.</div>`;
+  if (cell && P.cellTypes) { const k = cellOf(n).k; h += `<div class="note info">Ô sàn${k ? " loại <b>" + esc(k) + "</b>" : ""}: ${allowed.map((i) => STEPS[i].name).join(" → ")}.</div>`; }
+  else if (cell) h += `<div class="note info">Ô lấp đất giữa các ${U()} – chỉ theo dõi công tác Lấp đất.</div>`;
+  else if (P.cells) h += `<div class="muted small" style="margin-bottom:8px">${P.cellTypes ? "Lấp đất và các công tác sàn" : "Lấp đất"} được theo dõi theo từng ô giữa các ${U()}.</div>`;
   h += `<div class="steps">`;
-  STEPS.forEach((s, i) => {
-    if (!allowed.includes(i)) return;
-    const v = (r.d && r.d[i]) || "";
+  allowed.forEach((i) => {
+    const s = STEPS[i];
+    const v = dateOf(r.d, i) || "";
     h += `<div class="step"><i class="sw" style="background:${s.color};opacity:.8"></i><span>${s.name}</span>` +
       `<input type="date" data-i="${i}" value="${v}"${ed ? "" : " disabled"}>` +
       (ed ? `<button class="x" data-i="${i}" title="Xoá ngày">×</button>` : "<span></span>") + `</div>`;
   });
   h += `</div>`;
-  if (ed) h += `<div class="actions"><button class="primary" id="save" disabled>Lưu</button><button id="quick">${cell ? "✓ Đã lấp đất hôm nay" : "✓ Xong công tác tiếp theo hôm nay"}</button></div>`;
+  if (ed) h += `<div class="actions"><button class="primary" id="save" disabled>Lưu</button><button id="quick">${cell && allowed.length === 1 ? "✓ Đã lấp đất hôm nay" : "✓ Xong công tác tiếp theo hôm nay"}</button></div>`;
   h += `<div class="msg" id="msg"></div>`;
   const hist = (r.h || []).slice().reverse().slice(0, 10);
   if (hist.length) {
@@ -750,7 +783,7 @@ function renderSingle(n, ro) {
   panel.innerHTML = h;
   if (!ed) return;
   const inputs = panel.querySelectorAll("input[type=date]"), saveBtn = $("save");
-  const dirty = () => { const cur = r.d || []; let ch = false; inputs.forEach((inp) => { if ((inp.value || null) !== (cur[+inp.dataset.i] || null)) ch = true; }); saveBtn.disabled = !ch; };
+  const dirty = () => { let ch = false; inputs.forEach((inp) => { if ((inp.value || null) !== dateOf(r.d, +inp.dataset.i)) ch = true; }); saveBtn.disabled = !ch; };
   inputs.forEach((inp) => { inp.oninput = dirty; inp.onchange = dirty; });
   // × xoá ngày của công tác đó (tìm ô nhập theo data-i, vì ô lấp đất chỉ có 1 ô nhập) rồi lưu luôn
   panel.querySelectorAll(".x").forEach((b) => {
@@ -758,32 +791,33 @@ function renderSingle(n, ro) {
       const inp = panel.querySelector(`input[type=date][data-i="${b.dataset.i}"]`);
       if (!inp || !inp.value) return;
       inp.value = ""; dirty();
-      const nd = norm(r.d); inputs.forEach((x) => (nd[+x.dataset.i] = x.value || null));
+      const nd = norm(r.d); inputs.forEach((x) => (nd[SLOT(+x.dataset.i)] = x.value || null));
       saveMany([n], () => nd);
     };
   });
-  saveBtn.onclick = () => { const nd = norm(r.d); inputs.forEach((inp) => (nd[+inp.dataset.i] = inp.value || null)); saveMany([n], () => nd); };
+  saveBtn.onclick = () => { const nd = norm(r.d); inputs.forEach((inp) => (nd[SLOT(+inp.dataset.i)] = inp.value || null)); saveMany([n], () => nd); };
   $("quick").onclick = () => {
-    const cur = norm(r.d), nx = allowed.find((i) => i >= level(n, null));
+    const cur = norm(r.d), l = level(n, null), nx = allowed[l ? allowed.indexOf(l - 1) + 1 : 0];
     if (nx === undefined) { msg(`${itemName(n)} đã hoàn thành tất cả công tác.`); return; }
-    cur[nx] = todayStr(); saveMany([n], () => cur);
+    cur[SLOT(nx)] = todayStr(); saveMany([n], () => cur);
   };
 }
 
 function renderMulti(ro) {
   const panel = $("panel"), list = [...sel].sort((a, b) => sortKey(a) - sortKey(b));
-  const allowed = ALL_STEPS.filter((i) => list.every((n) => stepsFor(P, n).includes(i)));
+  const allowed = stepsFor(P, list[0]).filter((i) => list.every((n) => stepsFor(P, n).includes(i)));
   let h = `<div class="selhead"><b>${list.length} cấu kiện đã chọn</b><small>bấm để thêm / bỏ</small></div>${ro}`;
   h += `<div class="multi"><div class="chips">${list.map((n) => `<span>${esc(shortLabel(n))}</span>`).join("")}</div>`;
   if (canEdit() && !allowed.length) {
-    h += `<div class="note">Đang chọn lẫn ô lấp đất và ${U()}. Hãy chọn riêng từng loại để cập nhật.</div>`;
+    h += `<div class="note">Đang chọn lẫn ${cellWord()} và ${U()}. Hãy chọn riêng từng loại để cập nhật.</div>`;
   } else if (canEdit()) {
     // Mặc định: công tác hiện tại chung của các cấu kiện đã chọn; nếu khác nhau thì công tác tiếp theo của cấu kiện chậm nhất
     const lv = list.map((n) => level(n, null));
     const same = lv.every((x) => x === lv[0]);
-    let defStep = same && lv[0] > 0 ? lv[0] - 1 : Math.min(...lv);
-    if (!allowed.includes(defStep)) defStep = allowed.find((i) => i >= defStep) ?? allowed[allowed.length - 1];
-    const dates = list.map((n) => norm(rec(n).d)[defStep]);
+    // vị trí công tác hiện tại của từng cấu kiện trong trình tự chung (-1 = chưa làm)
+    const pos = lv.map((l) => (l ? allowed.indexOf(l - 1) : -1));
+    let defStep = same && lv[0] > 0 && allowed.includes(lv[0] - 1) ? lv[0] - 1 : allowed[Math.min(Math.min(...pos) + 1, allowed.length - 1)];
+    const dates = list.map((n) => dateOf(rec(n).d, defStep));
     const defDate = dates[0] && dates.every((x) => x === dates[0]) ? dates[0] : todayStr();
     h += `<div class="muted small">${same ? (lv[0] ? "Cùng đang ở công tác: <b>" + STEPS[lv[0] - 1].name + "</b>" : (isCell(list[0]) ? "Cùng chưa lấp đất" : "Cùng chưa thi công")) : "Các cấu kiện đang ở công tác khác nhau"}</div>`;
     h += `<label>Công tác <select id="mStep">${allowed.map((i) => `<option value="${i}"${i === defStep ? " selected" : ""}>${STEPS[i].name}</option>`).join("")}</select></label>`;
@@ -794,16 +828,16 @@ function renderMulti(ro) {
   panel.innerHTML = h;
   if (!canEdit() || !allowed.length) return;
   $("mStep").onchange = () => {
-    const i = +$("mStep").value, ds = list.map((n) => norm(rec(n).d)[i]);
+    const i = +$("mStep").value, ds = list.map((n) => dateOf(rec(n).d, i));
     $("mDate").value = ds[0] && ds.every((x) => x === ds[0]) ? ds[0] : todayStr();
   };
   $("mSave").onclick = () => {
     const i = +$("mStep").value, d = $("mDate").value; if (!d) { msg("Chọn ngày trước."); return; }
-    saveMany(list, (n) => { const c = norm(rec(n).d); c[i] = d; return c; });
+    saveMany(list, (n) => { const c = norm(rec(n).d); c[SLOT(i)] = d; return c; });
   };
   $("mClear").onclick = () => {
     const i = +$("mStep").value;
-    saveMany(list, (n) => { const c = norm(rec(n).d); c[i] = null; return c; });
+    saveMany(list, (n) => { const c = norm(rec(n).d); c[SLOT(i)] = null; return c; });
   };
 }
 
@@ -814,7 +848,8 @@ function makeEntries(existing, list, makeNew, via) {
     const old = existing[n] || { d: [], h: [] }, od = norm(old.d), nd = norm(makeNew(n));
     if (JSON.stringify(od) === JSON.stringify(nd)) return;
     const h = (old.h || []).slice();
-    for (let i = 0; i < 6; i++) if (od[i] !== nd[i]) h.push({ s: STEPS[i].name, d: nd[i], by: me.uid, byName: me.name, at: now, via: via || null });
+    const st = stepsFor(P, n), nameAt = (sl) => STEPS[st.find((i) => SLOT(i) === sl) ?? sl].name;
+    for (let i = 0; i < 6; i++) if (od[i] !== nd[i]) h.push({ s: nameAt(i), d: nd[i], by: me.uid, byName: me.name, at: now, via: via || null });
     entries.push([n, { d: nd, by: me.uid, byName: me.name, at: now, h: h.slice(-30) }]);
   });
   return entries;
@@ -898,7 +933,7 @@ async function exportExcel() {
     const aoa = [[UC(), ...VS.map((i) => STEPS[i].name), "Công tác hiện tại", "Cập nhật lần cuối", "Người cập nhật"]];
     P.geo.map((g) => g.n).concat((P.cells || []).map((c) => c.n)).sort((a, b) => sortKey(a) - sortKey(b)).forEach((n) => {
       const r = rec(n), l = level(n, asof), allowed = stepsFor(P, n);
-      aoa.push([isCell(n) ? "O" + cellLabel(n) : (geoOf(n).u ? itemName(n) : geoOf(n).t || Number(n)), ...VS.map((i) => norm(r.d)[i]).map((d, k) => (d && d <= asof && allowed.includes(VS[k]) ? { t: "n", v: excelSerial(d), z: "dd/mm/yyyy" } : "")),
+      aoa.push([isCell(n) ? "O" + cellLabel(n) : (geoOf(n).u ? itemName(n) : geoOf(n).t || Number(n)), ...VS.map((i) => dateOf(r.d, i)).map((d, k) => (d && d <= asof && allowed.includes(VS[k]) ? { t: "n", v: excelSerial(d), z: "dd/mm/yyyy" } : "")),
         l === 0 ? (isCell(n) ? "Chưa lấp đất" : "Chưa thi công") : STEPS[l - 1].name, r.at ? new Date(r.at).toLocaleString("vi-VN") : "", r.byName || ""]);
     });
     const ws = X.utils.aoa_to_sheet(aoa);
@@ -968,7 +1003,7 @@ async function renderPlanCanvas(prj, map, asof) {
   const c = cv.getContext("2d");
   c.fillStyle = "#fff"; c.fillRect(0, 0, cv.width, cv.height);
   await drawPlanOn(c, prj, map, asof, 0, head, s, true);
-  const { cnt, tot } = statsIn(prj, map, asof), cs = prj.cells ? (prj.cellStep ?? 5) : -1;
+  const { cnt, tot } = statsIn(prj, map, asof);
   // Tiêu đề
   c.fillStyle = "#111"; c.textAlign = "center"; c.textBaseline = "alphabetic";
   c.font = "bold 58px Arial"; c.fillText(prj.title, W / 2, 72);
@@ -976,7 +1011,7 @@ async function renderPlanCanvas(prj, map, asof) {
   c.fillText(`Công trình: ${prj.congTrinh}`, 40, 130); c.fillText(`Địa điểm: ${prj.diaDiem}`, 40, 172);
   c.textAlign = "right"; c.font = "bold 38px Arial"; c.fillText(`Ngày: ${fmt(asof)}`, W - 40, 130);
   const total = prj.geo.length;
-  const pct = (i) => { const p = tot[i] ? Math.round((cnt[i] / tot[i]) * 100) : 0; return i === cs ? `${cnt[i]}/${tot[i]} ô (${p}%)` : `${cnt[i]} (${p}%)`; };
+  const pct = (i) => { const p = tot[i] ? Math.round((cnt[i] / tot[i]) * 100) : 0; return isCellStep(prj, i) ? `${cnt[i]}/${tot[i]} ô (${p}%)` : `${cnt[i]} (${p}%)`; };
   const totalTxt = prj.cells ? `${total} ${U(prj)} · ${prj.cells.length} ô` : String(total);
   c.strokeStyle = "#333"; c.lineWidth = 2;
 
@@ -998,7 +1033,7 @@ async function renderPlanCanvas(prj, map, asof) {
     // Tổng số
     c.font = "bold 40px Arial"; c.fillText("TỔNG HỢP", x0, y + 30); y += 60;
     c.strokeRect(x0, y, pw, 130); c.beginPath(); c.moveTo(x0, y + 62); c.lineTo(x0 + pw, y + 62); c.stroke();
-    c.textAlign = "center"; c.font = "bold 36px Arial"; c.fillText(prj.cells ? `Tổng số ${U(prj)} / ô lấp đất` : `Tổng số ${U(prj)}`, x0 + pw / 2, y + 45);
+    c.textAlign = "center"; c.font = "bold 36px Arial"; c.fillText(prj.cells ? `Tổng số ${U(prj)} / ${cellWord(prj)}` : `Tổng số ${U(prj)}`, x0 + pw / 2, y + 45);
     c.font = "bold 44px Arial"; c.fillText(totalTxt, x0 + pw / 2, y + 112);
     y += 170;
     // Bảng công tác: tên (tô màu) | số lượng (%) + thanh tiến độ
@@ -1021,7 +1056,7 @@ async function renderPlanCanvas(prj, map, asof) {
     for (let i = 1; i < NC; i++) { c.moveTo(40 + colW * i, y0); c.lineTo(40 + colW * i, y0 + 130); }
     c.stroke();
     c.textAlign = "center"; c.fillStyle = "#111";
-    [prj.cells ? "Tổng số" : `Tổng số ${U(prj)}`, ...VS.map((i) => (i === cs ? STEPS[i].name + " (theo ô)" : STEPS[i].name))].forEach((t, i) => {
+    [prj.cells ? "Tổng số" : `Tổng số ${U(prj)}`, ...VS.map((i) => (isCellStep(prj, i) && !prj.cellTypes ? STEPS[i].name + " (theo ô)" : STEPS[i].name))].forEach((t, i) => {
       if (i > 0) { c.globalAlpha = 0.75; c.fillStyle = STEPS[VS[i - 1]].color; c.fillRect(40 + colW * i + 1, y0 + 1, colW - 2, 58); c.globalAlpha = 1; }
       c.fillStyle = "#111"; c.font = "bold 32px Arial"; c.fillText(t, 40 + colW * (i + 0.5), y0 + 42);
     });
@@ -1159,7 +1194,7 @@ async function addUser(e) {
 const WK = initWeekly({
   get P() { return P; }, get data() { return data; }, get be() { return be; }, get me() { return me; },
   get online() { return online; },
-  canEdit, $, esc, fmt, todayStr, STEPS, stepsFor, prjSteps, levelIn, statsIn, isCell, U, splitName,
+  canEdit, $, esc, fmt, todayStr, STEPS, stepsFor, prjSteps, levelIn, doneIn, isCellStep, statsIn, isCell, U, splitName,
   projName: () => (PROJECTS.find((x) => x.id === P.id) || P).name,
   setStatus, loadScript, JSPDF_URL, drawPlanOn, paint, isMobile, setSheet, updateHandle,
   pxToSvg: (px) => { const r = $("map").getBoundingClientRect(); return r.width ? (px * vb.w) / r.width : px; },

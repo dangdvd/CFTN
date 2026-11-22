@@ -138,12 +138,11 @@ export function initWeekly(ctx) {
   function zonePct(z, s, asof) {
     const prj = P(), ids = members(z).all.filter((n) => ctx.stepsFor(prj, n).includes(s));
     if (!ids.length) return null;
-    const done = ids.filter((n) => ctx.levelIn(prj, ctx.data, n, asof) > s).length;
+    const done = ids.filter((n) => ctx.doneIn(prj, ctx.data, n, s, asof)).length;
     return { done, tot: ids.length, pct: pctOf(done, ids.length) };
   }
   const pctOf = (a, b) => (b ? (a === b ? 100 : Math.floor((a / b) * 100)) : 0);
-  const cellStep = () => (P().cells ? P().cellStep ?? 5 : -1);
-  const unitOf = (s) => (W.cfg.kl[s] && W.cfg.kl[s].u) || (s === cellStep() ? "ô" : ctx.U());
+  const unitOf = (s) => (W.cfg.kl[s] && W.cfg.kl[s].u) || (ctx.isCellStep(P(), s) ? "ô" : ctx.U());
   // Bảng 2: khối lượng toàn mặt bằng tại ngày asof
   function totals(asof) {
     const { cnt, tot } = ctx.statsIn(P(), ctx.data, asof);
