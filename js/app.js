@@ -1,5 +1,5 @@
 import { OWNER_EMAILS } from "./config.js";
-import { initWeekly } from "./weekly.js?v=20261122c";
+import { initWeekly } from "./weekly.js?v=20261122d";
 
 // ===================== Hằng số =====================
 const STEPS = [
@@ -232,7 +232,7 @@ async function boot() {
     ALL_PROJECTS = await (await fetch("data/projects.json", { cache: "no-cache" })).json();
   } catch (e) { gate(`<div class="err">Không tải được danh sách mặt bằng.</div>`); return; }
   try {
-    be = await import("./backend.js?v=20261122c");
+    be = await import("./backend.js?v=20261122d");
   } catch (e) { gate(`<div class="err">Không tải được Firebase. Kiểm tra kết nối mạng.<br><small>${esc(e.message)}</small></div>`); return; }
 
   be.onUser((u) => {

@@ -73,7 +73,9 @@ main{flex:1;display:flex;min-height:0}
 aside{width:340px;background:var(--card);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
 aside .sec{padding:14px 16px;border-bottom:1px solid var(--line)}
 aside h2{font-size:13px;margin:0 0 10px;text-transform:uppercase;letter-spacing:.5px;color:var(--mute)}
-#panel{flex:1;overflow:auto}
+aside{overflow-y:auto;overscroll-behavior:contain}
+#panel{flex:none}
+aside .sec{flex:none}
 .legend{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;font-size:12.5px}
 .legend span{display:flex;align-items:center;gap:7px}
 .sw{width:22px;height:12px;border-radius:2px;border:1px solid rgba(0,0,0,.25);flex:none;display:inline-block}
