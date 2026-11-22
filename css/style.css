@@ -199,6 +199,11 @@ table.wk input[type=date]{min-width:118px}
 table.wk input.pct{width:58px}
 table.wk input.bad{border-color:#d92d20;background:#fef3f2}
 table.wk td small{white-space:nowrap}
+table.wk.t1 tr[data-r] td{vertical-align:top}
+table.wk.t1 tr[data-r] td.dash,table.wk.t1 tr[data-r] td.del{vertical-align:middle}
+table.wk.t1 input{height:34px;box-sizing:border-box}
+table.wk.t1 td.cn{min-width:150px}
+table.wk.t1 td.cn input{min-width:140px}
 table.wk .x{border:none;background:none;color:#98a2b3;padding:0 4px;font-size:17px}
 table.wk .x:hover{color:#d92d20}
 table.wk td.kl{display:flex;gap:3px;min-width:120px}
