@@ -226,3 +226,24 @@ table.wk tr.grp input.zn{width:150px;font-weight:600}
 /* Cấu kiện được tính vào vùng (≥ 50% diện tích nằm trong vùng) */
 #app.weekly .mong.inzone polygon{stroke:#0b2e6b;stroke-width:24;stroke-opacity:1}
 #app.weekly .mong.cell.inzone path{stroke:#0b2e6b;stroke-width:20;stroke-opacity:1;stroke-dasharray:none}
+/* Bảng công tác theo vùng trên điện thoại: mỗi công tác 2 dòng – tên công tác cả dòng, dưới là các ô nhập thẳng hàng */
+@media (max-width:820px){
+  table.wk.t1,table.wk.t1 tbody{display:block}
+  table.wk.t1 thead{display:none}
+  table.wk.t1 tr.grp{display:block;margin-top:6px}
+  table.wk.t1 tr.grp td{display:block}
+  table.wk.t1 tr[data-r]{display:grid;gap:2px;margin-bottom:2px;grid-template-columns:minmax(0,1fr) minmax(0,1fr) 92px}
+  table.wk.t1 tr.ra:not(.ro){grid-template-columns:minmax(0,1fr) minmax(0,1fr) 92px 30px}
+  table.wk.t1 tr.rbk{grid-template-columns:minmax(0,1fr) minmax(0,1fr) 56px 92px}
+  table.wk.t1 tr[data-r] td{display:flex;flex-direction:column;justify-content:flex-end;gap:2px;padding:4px 5px;min-width:0}
+  table.wk.t1 tr[data-r] td.cn{grid-column:1/-1;font-weight:600;font-size:14px;justify-content:center}
+  table.wk.t1 tr[data-r] td.dash{display:none}
+  table.wk.t1 tr[data-r] td.del{justify-content:center;align-items:center}
+  table.wk.t1 td[data-l]::before{content:attr(data-l);font-size:11px;color:var(--mute);white-space:nowrap}
+  table.wk.t1 input{font-size:16px;height:36px;padding:4px 6px}
+  table.wk.t1 input[type=date]{min-width:0;width:100%;-webkit-appearance:none;appearance:none;text-align:left}
+  table.wk.t1 input[type=date]{font-size:14px;padding:4px 4px}
+  table.wk.t1 input.pct{width:100%}
+  table.wk.t1 td small{font-size:11px;order:1}
+  table.wk.t1 td input{order:2}
+}

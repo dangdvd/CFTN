@@ -418,18 +418,18 @@ export function initWeekly(ctx) {
           if (r.z !== z.id) return;
           const now = zonePct(z, r.s, asof), np = now ? now.pct : 0;
           if (A) {
-            h += `<tr data-r="${ri}">
-              <td>${ed ? `<input type="text" class="rn" value="${esc(r.n)}">` : esc(r.n)}</td>
-              <td><input type="date" class="rb" value="${r.b || ""}"${dis}></td>
-              <td><input type="date" class="re" value="${r.e || ""}"${dis}></td>
-              <td><input type="number" class="rk pct" value="${r.kh ?? ""}" min="${np + 1}" max="100" step="1"${dis}><small class="muted"> hiện ${np}%</small></td>
-              <td class="muted">—</td>
-              ${ed ? `<td><button class="x" data-rdel="${ri}" title="Bỏ công tác khỏi kế hoạch">×</button></td>` : ""}</tr>`;
+            h += `<tr data-r="${ri}" class="ra${ed ? "" : " ro"}">
+              <td class="cn">${ed ? `<input type="text" class="rn" value="${esc(r.n)}">` : esc(r.n)}</td>
+              <td data-l="Bắt đầu"><input type="date" class="rb" value="${r.b || ""}"${dis}></td>
+              <td data-l="Kết thúc"><input type="date" class="re" value="${r.e || ""}"${dis}></td>
+              <td data-l="% kế hoạch"><input type="number" inputmode="numeric" class="rk pct" value="${r.kh ?? ""}" min="${np + 1}" max="100" step="1"${dis}><small class="muted"> hiện ${np}%</small></td>
+              <td class="muted dash">—</td>
+              ${ed ? `<td class="del"><button class="x" data-rdel="${ri}" title="Bỏ công tác khỏi kế hoạch">×</button></td>` : ""}</tr>`;
           } else {
-            h += `<tr data-r="${ri}"><td>${esc(r.n)}</td>` +
-              (ed ? `<td><input type="date" class="rb" value="${r.b || ""}"></td><td><input type="date" class="re" value="${r.e || ""}"></td>` : `<td>${dm(r.b)}</td><td>${dm(r.e)}</td>`) +
-              `<td>${pctTxt(r.kh)}</td>
-              <td><input type="number" class="rt pct" value="${r.th ?? ""}" min="0" max="100" step="1"${dis}><small class="muted"> thực tế ${np}%</small></td></tr>`;
+            h += `<tr data-r="${ri}" class="rbk"><td class="cn">${esc(r.n)}</td>` +
+              (ed ? `<td data-l="Bắt đầu"><input type="date" class="rb" value="${r.b || ""}"></td><td data-l="Kết thúc"><input type="date" class="re" value="${r.e || ""}"></td>` : `<td data-l="Bắt đầu">${dm(r.b)}</td><td data-l="Kết thúc">${dm(r.e)}</td>`) +
+              `<td data-l="% KH">${pctTxt(r.kh)}</td>
+              <td data-l="% thực hiện"><input type="number" inputmode="numeric" class="rt pct" value="${r.th ?? ""}" min="0" max="100" step="1"${dis}><small class="muted"> thực tế ${np}%</small></td></tr>`;
           }
         });
       });
