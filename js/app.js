@@ -17,6 +17,8 @@ const STEPS = [
   { name: "Cốt thép sàn",     color: "#C00000", slot: 2 },
   { name: "Cốp pha sàn",      color: "#FFC000", slot: 3 },
   { name: "Đổ bê tông sàn",   color: "#00B050", slot: 4 },
+  // Công tác của đoạn cống (cấu kiện có g.s): lưu ở ô 1 (ống không có bê tông lót)
+  { name: "Lắp đặt ống",      color: "#0070C0", slot: 1 },
 ];
 // Tên công tác có thể đặt riêng theo mặt bằng: prj.stepNames = {chỉ số: "tên"}
 const BASE_NAMES = STEPS.map((s) => s.name);
@@ -88,10 +90,16 @@ function cellStepSet(prj) {
   return prj._cs;
 }
 const isCellStep = (prj, i) => cellStepSet(prj).has(i);
+// công tác chỉ dùng cho cấu kiện có trình tự riêng (g.s), không áp cho cấu kiện thường
+function geoStepOnly(prj, i) {
+  if (!prj._gs) { const own = new Set(); prj.geo.forEach((g) => (g.s ? g.s : []).forEach((k) => own.add(k))); prj._gs = own; }
+  return prj._gs.has(i) && !(prj.stepsBase || [0, 1, 2, 3, 4, 5]).includes(i);
+}
 function stepsFor(prj, n) {
   if (!prj) return ALL_STEPS;
   const base = prjSteps(prj);
-  if (!prj.cells) return base;
+  if (!isCell(n)) { const g = geoOf(n, prj); if (g.s) return g.s; } // cấu kiện có trình tự riêng (vd đoạn cống)
+  if (!prj.cells) return base.filter((i) => !geoStepOnly(prj, i));
   return isCell(n) ? cellStepsOf(prj, n) : base.filter((i) => !isCellStep(prj, i));
 }
 const dateOf = (d, i) => (d ? d[SLOT(i)] || null : null);
@@ -274,7 +282,7 @@ function cleanup() {
 let built = false;
 // Tên mặt bằng dạng "Nhà … – Móng" → [nhà, loại mặt bằng]
 function splitName(n) { const i = n.lastIndexOf(" – "); return i < 0 ? [n, ""] : [n.slice(0, i), n.slice(i + 3)]; }
-const KIND_ORDER = ["Móng", "Móng bể nước", "Đà kiềng", "Dầm sàn tầng 1", "Dầm sàn cao độ -0.050", "Cổ cột", "Cột tầng 1", "Vách tầng 1"];
+const KIND_ORDER = ["Giao thông", "Cấp thoát nước", "Móng", "Móng bể nước", "Đà kiềng", "Dầm sàn tầng 1", "Dầm sàn cao độ -0.050", "Cổ cột", "Cột tầng 1", "Vách tầng 1"];
 function plansOf(h) {
   return PROJECTS.filter((x) => splitName(x.name)[0] === h)
     .sort((a, b) => KIND_ORDER.indexOf(splitName(a.name)[1]) - KIND_ORDER.indexOf(splitName(b.name)[1]));
