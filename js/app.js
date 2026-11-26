@@ -1,5 +1,5 @@
 import { OWNER_EMAILS } from "./config.js";
-import { initWeekly } from "./weekly.js?v=20261122h";
+import { initWeekly } from "./weekly.js?v=20261126a";
 
 // ===================== Hằng số =====================
 const STEPS = [
@@ -235,7 +235,7 @@ async function boot() {
     ALL_PROJECTS = await (await fetch("data/projects.json", { cache: "no-cache" })).json();
   } catch (e) { gate(`<div class="err">Không tải được danh sách mặt bằng.</div>`); return; }
   try {
-    be = await import("./backend.js?v=20261122h");
+    be = await import("./backend.js?v=20261126a");
   } catch (e) { gate(`<div class="err">Không tải được Firebase. Kiểm tra kết nối mạng.<br><small>${esc(e.message)}</small></div>`); return; }
 
   be.onUser((u) => {
@@ -274,7 +274,7 @@ function cleanup() {
 let built = false;
 // Tên mặt bằng dạng "Nhà … – Móng" → [nhà, loại mặt bằng]
 function splitName(n) { const i = n.lastIndexOf(" – "); return i < 0 ? [n, ""] : [n.slice(0, i), n.slice(i + 3)]; }
-const KIND_ORDER = ["Móng", "Móng bể nước", "Đà kiềng", "Dầm sàn tầng 1", "Cổ cột", "Cột tầng 1", "Vách tầng 1"];
+const KIND_ORDER = ["Móng", "Móng bể nước", "Đà kiềng", "Dầm sàn tầng 1", "Dầm sàn cao độ -0.050", "Cổ cột", "Cột tầng 1", "Vách tầng 1"];
 function plansOf(h) {
   return PROJECTS.filter((x) => splitName(x.name)[0] === h)
     .sort((a, b) => KIND_ORDER.indexOf(splitName(a.name)[1]) - KIND_ORDER.indexOf(splitName(b.name)[1]));
