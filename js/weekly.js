@@ -3,7 +3,9 @@
 //  - Tuần báo cáo W = [start, start+6]; kế hoạch lập cho tuần tới W+1.
 //  - Dữ liệu: projects/{id}/weeks/w{ngày đầu tuần}
 //      zones: [{id, n, p:[x,y,…], c?, f?}]  vùng khoanh trên mặt bằng (tuyến); c = màu, f = kiểu tô
-//      rows:  [{z, s, n, b, e, kh, th}]     bảng 1: công tác theo vùng
+//      rows:  [{z, s, n, b, e, kh, th, m}]  bảng 1: công tác theo vùng
+//             s = chỉ số công tác của mặt bằng, null = công tác tự nhập (chưa khai báo trên mặt bằng)
+//             m = true: dòng do người dùng thêm tay (không tự xoá khi sửa vùng)
 //      t2:    {s: %}                        % kế hoạch của tuần này (bảng 2)
 //      res:   [{n, q, g}]                   nhân lực – thiết bị (tuỳ chọn)
 //      tA, dA / tB, dB                      tiêu đề, ngày lập của trang kế hoạch / báo cáo
@@ -200,14 +202,19 @@ export function initWeekly(ctx) {
   }
 
   // Sau khi sửa hình vùng: thêm công tác chưa xong mới xuất hiện, bỏ công tác không còn cấu kiện nào trong vùng
+  // Sắp xếp: theo thứ tự vùng, trong vùng theo thứ tự công tác; công tác tự nhập xếp cuối (giữ thứ tự thêm)
+  function sortRows(d) {
+    const zi = (id) => d.zones.findIndex((q) => q.id === id), sk = (r) => (r.s == null ? 1000 : r.s);
+    d.rows.sort((x, y) => zi(x.z) - zi(y.z) || sk(x) - sk(y));
+  }
   function syncRows(d, z) {
     const before = d.rows.length;
-    d.rows = d.rows.filter((r) => r.z !== z.id || zonePct(z, r.s, cutoff()));
+    d.rows = d.rows.filter((r) => r.z !== z.id || r.m || r.s == null || zonePct(z, r.s, cutoff()));
     const removed = before - d.rows.length;
     const have = new Set(d.rows.filter((r) => r.z === z.id).map((r) => r.s));
     const add = openSteps(z).filter((s) => !have.has(s));
     add.forEach((s) => d.rows.push({ z: z.id, s, n: STEPS[s].name, b: "", e: "", kh: null, th: null }));
-    d.rows.sort((x, y) => d.zones.findIndex((q) => q.id === x.z) - d.zones.findIndex((q) => q.id === y.z) || x.s - y.s);
+    sortRows(d);
     return { add: add.length, removed };
   }
 
@@ -470,22 +477,36 @@ export function initWeekly(ctx) {
           `</td></tr>`;
         d.rows.forEach((r, ri) => {
           if (r.z !== z.id) return;
-          const now = zonePct(z, r.s, asof), np = now ? now.pct : 0;
+          const now = r.s == null ? null : zonePct(z, r.s, asof), np = now ? now.pct : 0;
+          const hint = r.s == null ? "công tác thêm" : now ? `hiện ${np}%` : "chưa có cấu kiện";
           if (A) {
             h += `<tr data-r="${ri}" class="ra${ed ? "" : " ro"}">
               <td class="cn">${ed ? `<input type="text" class="rn" value="${esc(r.n)}">` : esc(r.n)}</td>
               <td data-l="Bắt đầu"><input type="date" class="rb" value="${r.b || ""}"${dis}></td>
               <td data-l="Kết thúc"><input type="date" class="re" value="${r.e || ""}"${dis}></td>
-              <td data-l="% kế hoạch"><input type="number" inputmode="numeric" class="rk pct" value="${r.kh ?? ""}" min="${np + 1}" max="100" step="1"${dis}><small class="muted"> hiện ${np}%</small></td>
+              <td data-l="% kế hoạch"><input type="number" inputmode="numeric" class="rk pct" value="${r.kh ?? ""}" min="${r.m || r.s == null ? 1 : np + 1}" max="100" step="1"${dis}><small class="muted"> ${hint}</small></td>
               <td class="muted dash">—</td>
               ${ed ? `<td class="del"><button class="x" data-rdel="${ri}" title="Bỏ công tác khỏi kế hoạch">×</button></td>` : ""}</tr>`;
           } else {
             h += `<tr data-r="${ri}" class="rbk"><td class="cn">${esc(r.n)}</td>` +
               (ed ? `<td data-l="Bắt đầu"><input type="date" class="rb" value="${r.b || ""}"></td><td data-l="Kết thúc"><input type="date" class="re" value="${r.e || ""}"></td>` : `<td data-l="Bắt đầu">${dm(r.b)}</td><td data-l="Kết thúc">${dm(r.e)}</td>`) +
               `<td data-l="% KH">${pctTxt(r.kh)}</td>
-              <td data-l="% thực hiện"><input type="number" inputmode="numeric" class="rt pct" value="${r.th ?? ""}" min="0" max="100" step="1"${dis}><small class="muted"> thực tế ${np}%</small></td></tr>`;
+              <td data-l="% thực hiện"><input type="number" inputmode="numeric" class="rt pct" value="${r.th ?? ""}" min="0" max="100" step="1"${dis}><small class="muted">${r.s == null ? "" : ` thực tế ${np}%`}</small></td></tr>`;
           }
         });
+        // Thêm công tác vào vùng: công tác của mặt bằng chưa có trong vùng, hoặc công tác tự nhập tên
+        if (A && ed) {
+          const have = new Set(d.rows.filter((r) => r.z === z.id && r.s != null).map((r) => r.s));
+          const opts = ctx.prjSteps(P()).filter((s) => !have.has(s)).map((s) => {
+            const p = zonePct(z, s, asof);
+            return `<option value="${s}">${esc(STEPS[s].name)}${p ? (p.pct >= 100 ? " (đã xong)" : ` (hiện ${p.pct}%)`) : " (vùng chưa có cấu kiện)"}</option>`;
+          }).join("");
+          h += `<tr class="radd"><td colspan="6"><select class="addsel" data-z="${z.id}" title="Thêm công tác vào ${esc(z.n)}">
+            <option value="" selected>+ Thêm công tác vào ${esc(z.n)}…</option>
+            ${opts ? `<optgroup label="Công tác của mặt bằng">${opts}</optgroup>` : ""}
+            <optgroup label="Công tác chưa khai báo"><option value="new">Công tác khác (tự nhập tên)…</option></optgroup>
+          </select></td></tr>`;
+        }
       });
       h += `</tbody></table></div>`;
     }
@@ -551,15 +572,28 @@ export function initWeekly(ctx) {
       const add = openSteps(z).filter((s) => !have.has(s));
       // chèn sau dòng cuối của vùng, giữ thứ tự công tác
       add.forEach((s) => d.rows.push({ z: z.id, s, n: STEPS[s].name, b: "", e: "", kh: null, th: null }));
-      d.rows.sort((x, y) => d.zones.findIndex((q) => q.id === x.z) - d.zones.findIndex((q) => q.id === y.z) || x.s - y.s);
+      sortRows(d);
       if (add.length) touch();
       msg(add.length ? `Đã thêm ${add.length} công tác.` : "Không còn công tác chưa xong nào để thêm.", true); render();
+    }));
+    box.querySelectorAll(".addsel").forEach((sel) => (sel.onchange = () => {
+      const v = sel.value; if (!v) return;
+      const zid = +sel.dataset.z, z = zoneName(d, zid); if (!z) return;
+      const row = v === "new"
+        ? { z: zid, s: null, n: "Công tác mới", b: "", e: "", kh: null, th: null, m: true }
+        : { z: zid, s: +v, n: STEPS[+v].name, b: "", e: "", kh: null, th: null, m: true };
+      d.rows.push(row); sortRows(d); touch(); render();
+      msg(v === "new" ? `Đã thêm công tác mới vào ${z.n} – gõ tên công tác.` : `Đã thêm ${row.n} vào ${z.n}.`, true);
+      if (v === "new") {
+        const i = d.rows.indexOf(row), inp = box.querySelector(`.t1 tr[data-r="${i}"] .rn`);
+        if (inp) { inp.focus(); inp.select(); }
+      }
     }));
     box.querySelectorAll("[data-rdel]").forEach((b) => (b.onclick = () => { d.rows.splice(+b.dataset.rdel, 1); touch(); render(); }));
     box.querySelectorAll(".t1 tr[data-r]").forEach((tr) => {
       const r = d.rows[+tr.dataset.r], q = (c) => tr.querySelector(c);
       const z = zoneName(d, r.z);
-      if (q(".rn")) q(".rn").onchange = (e) => { r.n = e.target.value.trim() || STEPS[r.s].name; touch(); };
+      if (q(".rn")) q(".rn").onchange = (e) => { r.n = e.target.value.trim() || (r.s == null ? r.n : STEPS[r.s].name); e.target.value = r.n; touch(); };
       // Ngày bắt đầu / kết thúc: được trùng nhau (công tác 1 ngày), không giới hạn trong tuần (công tác có thể kéo dài).
       // Nếu nhập sai thứ tự thì báo và trả ô về giá trị đã lưu, tránh hiện ngày mà không được lưu.
       const setDate = (key, inp) => {
@@ -572,8 +606,10 @@ export function initWeekly(ctx) {
       if (q(".rk")) q(".rk").onchange = (e) => {
         const raw = e.target.value;
         if (raw === "") { good(e.target); r.kh = null; touch(); return; }
-        const v = Number(raw), now = z ? (zonePct(z, r.s, cutoff()) || { pct: 0 }).pct : 0;
-        if (!Number.isFinite(v) || v <= now || v > 100) return bad(e.target, `% hoàn thành kế hoạch phải lớn hơn ${now}% (hiện tại) và không quá 100%.`);
+        const v = Number(raw);
+        // dòng thêm tay (công tác tự nhập, làm lại, công tác vùng đã xong) chỉ cần 1–100%
+        const now = r.m || r.s == null ? 0 : z ? (zonePct(z, r.s, cutoff()) || { pct: 0 }).pct : 0;
+        if (!Number.isFinite(v) || v <= now || v > 100) return bad(e.target, now ? `% hoàn thành kế hoạch phải lớn hơn ${now}% (hiện tại) và không quá 100%.` : "% hoàn thành kế hoạch phải từ 1 đến 100%.");
         good(e.target); r.kh = Math.round(v * 10) / 10; touch();
       };
       if (q(".rt")) q(".rt").onchange = (e) => {
@@ -587,7 +623,7 @@ export function initWeekly(ctx) {
     const fa = $("fillActual");
     if (fa) fa.onclick = () => {
       let n = 0;
-      d.rows.forEach((r) => { if (r.th != null) return; const z = zoneName(d, r.z); if (!z) return; const p = zonePct(z, r.s, cutoff()); r.th = p ? p.pct : 0; n++; });
+      d.rows.forEach((r) => { if (r.th != null || r.s == null) return; const z = zoneName(d, r.z); if (!z) return; const p = zonePct(z, r.s, cutoff()); r.th = p ? p.pct : 0; n++; });
       if (n) touch(); msg(n ? `Đã điền ${n} dòng theo thực tế.` : "Các dòng đã có % thực hiện.", true); render();
     };
 

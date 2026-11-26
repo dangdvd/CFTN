@@ -257,3 +257,7 @@ table.wk tr.grp input.zn{width:150px;font-weight:600}
   table.wk.t1 td small{font-size:11px;order:1}
   table.wk.t1 td input{order:2}
 }
+/* Bảng 1: ô thêm công tác cuối mỗi vùng */
+table.wk tr.radd td{background:transparent!important;padding:2px 0 8px}
+table.wk select.addsel{font:inherit;font-size:12.5px;padding:5px 6px;border:1px dashed #9aa4b2;border-radius:6px;background:#fff;color:#1f4e9c;max-width:100%;cursor:pointer}
+table.wk select.addsel:hover{border-color:#1f4e9c}
