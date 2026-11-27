@@ -1,5 +1,5 @@
 import { OWNER_EMAILS } from "./config.js";
-import { initWeekly } from "./weekly.js?v=20261127a";
+import { initWeekly } from "./weekly.js?v=20261127b";
 
 // ===================== Hằng số =====================
 const STEPS = [
@@ -243,7 +243,7 @@ async function boot() {
     ALL_PROJECTS = await (await fetch("data/projects.json", { cache: "no-cache" })).json();
   } catch (e) { gate(`<div class="err">Không tải được danh sách mặt bằng.</div>`); return; }
   try {
-    be = await import("./backend.js?v=20261127a");
+    be = await import("./backend.js?v=20261127b");
   } catch (e) { gate(`<div class="err">Không tải được Firebase. Kiểm tra kết nối mạng.<br><small>${esc(e.message)}</small></div>`); return; }
 
   be.onUser((u) => {
@@ -428,8 +428,9 @@ function buildMap() {
     t.setAttribute("x", l[0]); t.setAttribute("y", l[1]); t.setAttribute("font-size", f);
     t.textContent = "O" + label;
     const tt = document.createElementNS(NS, "title");
-    g.append(tt, r, t); svg.appendChild(g);
-    nodes[n] = { g, r, tt, cell: true };
+    const dt = dateText(l, f, 0);
+    g.append(tt, r, t, dt); svg.appendChild(g);
+    nodes[n] = { g, r, tt, dt, cell: true };
   });
   P.geo.forEach(({ n, t: lbl, p, l, a, f }) => {
     const g = document.createElementNS(NS, "g"); g.setAttribute("class", "mong"); g.dataset.n = n;
@@ -441,8 +442,9 @@ function buildMap() {
     if (a) t.setAttribute("transform", `rotate(${a} ${l[0]} ${l[1]})`);
     t.textContent = lbl || n;
     const tt = document.createElementNS(NS, "title");
-    g.append(tt, r, t); svg.appendChild(g);
-    nodes[n] = { g, r, tt };
+    const dt = dateText(l, f, a);
+    g.append(tt, r, t, dt); svg.appendChild(g);
+    nodes[n] = { g, r, tt, dt };
   });
   vb.w = P.width; vb.h = P.height; setVB();
   WK.drawZones();
@@ -451,13 +453,33 @@ function buildMap() {
   $("legend").innerHTML = lg.join("");
 }
 
+// Dòng ngày hoàn thành (dd/mm) dưới tên cấu kiện
+function dateText(l, f, a) {
+  const t = document.createElementNS(NS, "text");
+  const x = l[0], y = l[1] + f * 1.05;
+  t.setAttribute("x", x); t.setAttribute("y", y); t.setAttribute("font-size", f * 0.85); t.setAttribute("class", "dt");
+  if (a) t.setAttribute("transform", `rotate(${a} ${l[0]} ${l[1]})`);
+  return t;
+}
+const prevDay = (d) => { const t = new Date(d + "T12:00:00"); t.setDate(t.getDate() - 1); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`; };
+const fmtDM = (d) => (d ? d.slice(8, 10) + "/" + d.slice(5, 7) : "");
+// Khoảng xem: from rỗng = lũy kế đến asof
+function range() { const a = $("asof").value, f = $("from").value; return { asof: a, from: f && (!a || f <= a) ? f : "" }; }
+// Cấu kiện có công tác hoàn thành trong khoảng [from, asof]
+function doneInRange(n, from, asof) {
+  const d = rec(n).d; return stepsFor(P, n).some((i) => { const v = dateOf(d, i); return v && v >= from && (!asof || v <= asof); });
+}
 function paint() {
-  const asof = $("asof").value;
+  const { asof, from } = range(), showD = $("showDate").checked;
+  $("map").classList.toggle("showdate", showD);
   for (const n in nodes) {
     const l = level(n, asof), o = nodes[n];
+    const out = from && !doneInRange(n, from, asof); // không có sản lượng trong kỳ → làm mờ
     o.r.setAttribute("fill", colorOf(l));
-    if (o.cell) o.r.setAttribute("fill-opacity", l === 0 ? "0.04" : "0.45");
-    else o.r.setAttribute("fill-opacity", l === 0 ? "0.55" : "0.72");
+    if (o.cell) o.r.setAttribute("fill-opacity", l === 0 ? "0.04" : out ? "0.12" : "0.45");
+    else o.r.setAttribute("fill-opacity", l === 0 ? "0.55" : out ? "0.18" : "0.72");
+    o.g.classList.toggle("out", !!out);
+    if (o.dt) o.dt.textContent = showD && l ? fmtDM(dateOf(rec(n).d, l - 1)) : "";
     o.g.classList.toggle("sel", sel.has(n));
     o.g.classList.toggle("done", l > 0);
     o.tt.textContent = `${itemName(n)} – ${l === 0 ? (o.cell ? "Chưa lấp đất" : "Chưa thi công") : STEPS[l - 1].name}`;
@@ -467,14 +489,16 @@ function paint() {
 
 function stats(asof) { return statsIn(P, data, asof).cnt; }
 function renderStats() {
-  const asof = $("asof").value, { cnt, tot } = statsIn(P, data, asof);
-  $("statDate").textContent = fmt(asof);
+  const { asof, from } = range(), { cnt, tot } = statsIn(P, data, asof);
+  const before = from ? statsIn(P, data, prevDay(from)).cnt : null;
+  $("statDate").textContent = from ? `${fmt(from)} – ${fmt(asof)}` : fmt(asof);
   let h = `<tr><td>Tổng số ${U()}</td><td>${P.geo.length}</td></tr>`;
   if (P.cells) h += `<tr><td>Tổng số ${cellWord()}</td><td>${P.cells.length}</td></tr>`;
   prjSteps(P).forEach((i) => {
     const s = STEPS[i], cs = isCellStep(P, i);
     const p = tot[i] ? Math.round((cnt[i] / tot[i]) * 100) : 0;
-    const v = cs ? `${cnt[i]}/${tot[i]} ô (${p}%)` : `${cnt[i]} (${p}%)`;
+    let v = cs ? `${cnt[i]}/${tot[i]} ô (${p}%)` : `${cnt[i]} (${p}%)`;
+    if (before) v = `<b class="ink">+${cnt[i] - before[i]}${cs ? " ô" : ""}</b> <small class="muted">lũy kế ${v}</small>`;
     h += `<tr><td>${s.name}${cs ? " <small class=\"muted\">(theo ô)</small>" : ""}<div class="bar"><i style="width:${p}%;background:${s.color}"></i></div></td><td>${v}</td></tr>`;
   });
   $("stats").innerHTML = h;
@@ -611,6 +635,8 @@ function bindUI() {
   };
   $("clearSel").onclick = () => { sel.clear(); paint(); renderPanel(); };
   $("asof").onchange = paint;
+  $("from").onchange = paint;
+  $("showDate").onchange = paint;
   $("houseSel").onchange = () => {
     const h = $("houseSel").value, cur = splitName(P ? PROJECTS.find((x) => x.id === P.id).name : "")[1];
     const list = plansOf(h);

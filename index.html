@@ -7,7 +7,7 @@
 <link rel="icon" type="image/png" sizes="32x32" href="img/favicon-32.png">
 <link rel="icon" type="image/png" sizes="64x64" href="img/favicon-64.png">
 <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
-<link rel="stylesheet" href="css/style.css?v=20261127a">
+<link rel="stylesheet" href="css/style.css?v=20261127b">
 </head>
 <body>
 
@@ -45,8 +45,10 @@
       <button data-view="week" title="Khoanh vùng lập kế hoạch tuần tới và báo cáo tuần vừa xong">📅 Kế hoạch – Báo cáo tuần</button>
     </span>
     <span class="sep trk"></span>
-    <label class="trk"><span class="lbl">Xem tiến độ đến ngày</span> <input type="date" id="asof" title="Xem tiến độ đến ngày"></label>
+    <label class="trk"><span class="lbl">Từ ngày</span> <input type="date" id="from" title="Để trống: xem lũy kế. Chọn ngày: xem sản lượng trong khoảng Từ ngày – Đến ngày"></label>
+    <label class="trk"><span class="lbl">đến ngày</span> <input type="date" id="asof" title="Xem tiến độ đến ngày"></label>
     <button id="today" class="trk">Hôm nay</button>
+    <label class="trk chk" title="Hiện ngày hoàn thành của công tác đang tô màu trên từng cấu kiện"><input type="checkbox" id="showDate"> Hiện ngày</label>
     <span class="sep trk"></span>
     <button id="multiBtn" class="ed trk" title="Bấm lần lượt nhiều cấu kiện rồi cập nhật cùng lúc">Chọn nhiều</button>
     <button id="boxBtn" class="ed trk" title="Kéo khung để chọn: trái→phải chọn cấu kiện nằm trọn trong khung, phải→trái chọn cấu kiện chạm khung (máy tính: giữ Ctrl hoặc Shift rồi kéo; thêm Alt để bỏ chọn)">⬚ Quét chọn</button>
@@ -130,6 +132,6 @@
   </div>
 </div>
 
-<script type="module" src="js/app.js?v=20261127a"></script>
+<script type="module" src="js/app.js?v=20261127b"></script>
 </body>
 </html>

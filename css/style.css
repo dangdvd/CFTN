@@ -261,3 +261,9 @@ table.wk tr.grp input.zn{width:150px;font-weight:600}
 table.wk tr.radd td{background:transparent!important;padding:2px 0 8px}
 table.wk select.addsel{font:inherit;font-size:12.5px;padding:5px 6px;border:1px dashed #9aa4b2;border-radius:6px;background:#fff;color:#1f4e9c;max-width:100%;cursor:pointer}
 table.wk select.addsel:hover{border-color:#1f4e9c}
+
+.mong text.dt{font-weight:600;fill:#7a1010;display:none}
+#map.showdate .mong text.dt{display:block}
+.mong.out text{opacity:.45}
+.ink{color:#0b5fa5}
+label.chk{display:inline-flex;align-items:center;gap:4px;white-space:nowrap;cursor:pointer}
