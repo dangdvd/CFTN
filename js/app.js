@@ -1,5 +1,5 @@
 import { OWNER_EMAILS } from "./config.js";
-import { initWeekly } from "./weekly.js?v=20261126b";
+import { initWeekly } from "./weekly.js?v=20261127a";
 
 // ===================== Hằng số =====================
 const STEPS = [
@@ -243,7 +243,7 @@ async function boot() {
     ALL_PROJECTS = await (await fetch("data/projects.json", { cache: "no-cache" })).json();
   } catch (e) { gate(`<div class="err">Không tải được danh sách mặt bằng.</div>`); return; }
   try {
-    be = await import("./backend.js?v=20261126b");
+    be = await import("./backend.js?v=20261127a");
   } catch (e) { gate(`<div class="err">Không tải được Firebase. Kiểm tra kết nối mạng.<br><small>${esc(e.message)}</small></div>`); return; }
 
   be.onUser((u) => {
@@ -1224,6 +1224,8 @@ const WK = initWeekly({
   get online() { return online; },
   canEdit, $, esc, fmt, todayStr, STEPS, stepsFor, prjSteps, levelIn, doneIn, isCellStep, statsIn, isCell, U, splitName,
   projName: () => (PROJECTS.find((x) => x.id === P.id) || P).name,
+  projNameOf: (id) => (ALL_PROJECTS.find((x) => x.id === id) || PROJECTS.find((x) => x.id === id) || P).name,
+  projects: () => PROJECTS, loadProject, remapData, useStepNames,
   setStatus, loadScript, JSPDF_URL, drawPlanOn, paint, isMobile, setSheet, updateHandle,
   pxToSvg: (px) => { const r = $("map").getBoundingClientRect(); return r.width ? (px * vb.w) / r.width : px; },
   shortLabel, itemName,

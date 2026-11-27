@@ -45,14 +45,18 @@ export function initWeekly(ctx) {
   }
 
   const empty = (start) => ({ start, end: addDays(start, 6), zones: [], rows: [], t2: {}, res: [] });
-  const docOf = (start) => W.docs[wid(start)] || (W.docs[wid(start)] = empty(start));
+  // W.ov = {prj, data, docs, cfg}: khi xuất nhiều mặt bằng, các hàm tính toán/vẽ trang đọc dữ liệu của mặt bằng đang xuất
+  const DOCS = () => (W.ov ? W.ov.docs : W.docs);
+  const CFG = () => (W.ov ? W.ov.cfg : W.cfg);
+  const DATA = () => (W.ov ? W.ov.data : ctx.data);
+  const docOf = (start) => DOCS()[wid(start)] || (DOCS()[wid(start)] = empty(start));
   const cur = () => docOf(curStart());
   const nxt = () => docOf(nxtStart());
   // Trang đang xem: A → kế hoạch tuần tới (tài liệu W+1), B → báo cáo tuần W (tài liệu W)
   const pageDoc = () => (W.tab === "A" ? nxt() : cur());
 
   const canEdit = () => ctx.canEdit();
-  const P = () => ctx.P;
+  const P = () => (W.ov ? W.ov.prj : ctx.P);
 
   // ---------- Đồng bộ Firestore ----------
   function stop() {
@@ -135,21 +139,21 @@ export function initWeekly(ctx) {
     memo.set(key, out);
     return out;
   }
-  const countTxt = (m) => [m.geo.length ? `${m.geo.length} ${ctx.U()}` : "", m.cells.length ? `${m.cells.length} ô` : ""].filter(Boolean).join(" · ") || "0 cấu kiện";
+  const countTxt = (m) => [m.geo.length ? `${m.geo.length} ${ctx.U(P())}` : "", m.cells.length ? `${m.cells.length} ô` : ""].filter(Boolean).join(" · ") || "0 cấu kiện";
   // % hoàn thành của công tác s trong vùng z tại ngày asof (theo số cấu kiện)
   function zonePct(z, s, asof) {
     const prj = P(), ids = members(z).all.filter((n) => ctx.stepsFor(prj, n).includes(s));
     if (!ids.length) return null;
-    const done = ids.filter((n) => ctx.doneIn(prj, ctx.data, n, s, asof)).length;
+    const done = ids.filter((n) => ctx.doneIn(prj, DATA(), n, s, asof)).length;
     return { done, tot: ids.length, pct: pctOf(done, ids.length) };
   }
   const pctOf = (a, b) => (b ? (a === b ? 100 : Math.floor((a / b) * 100)) : 0);
-  const unitOf = (s) => (W.cfg.kl[s] && W.cfg.kl[s].u) || (ctx.isCellStep(P(), s) ? "ô" : ctx.U());
+  const unitOf = (s) => (CFG().kl[s] && CFG().kl[s].u) || (ctx.isCellStep(P(), s) ? "ô" : ctx.U(P()));
   // Bảng 2: khối lượng toàn mặt bằng tại ngày asof
   function totals(asof) {
-    const { cnt, tot } = ctx.statsIn(P(), ctx.data, asof);
+    const { cnt, tot } = ctx.statsIn(P(), DATA(), asof);
     return ctx.prjSteps(P()).map((s) => {
-      const k = W.cfg.kl[s] || {}, v = Number(k.v) > 0 ? Number(k.v) : null;
+      const k = CFG().kl[s] || {}, v = Number(k.v) > 0 ? Number(k.v) : null;
       const kl = v ?? tot[s], pct = pctOf(cnt[s], tot[s]);
       const lk = v ? Math.round((v * cnt[s]) / (tot[s] || 1)) : cnt[s];
       return { s, name: STEPS[s].name, unit: unitOf(s), kl, lk, pct, custom: !!v, count: tot[s] };
@@ -313,6 +317,7 @@ export function initWeekly(ctx) {
   }
   // fast = đang kéo: không tính lại cấu kiện thuộc vùng cho nhẹ
   function drawZones(fast) {
+    if (W.ov) return;
     const svg = $("map"); if (!svg || !P()) return;
     let g = document.getElementById("zlayer");
     if (!g) { g = document.createElementNS(NS, "g"); g.id = "zlayer"; svg.appendChild(g); }
@@ -424,7 +429,7 @@ export function initWeekly(ctx) {
     render();
   }
   const defTitle = (tab) => {
-    const [house, kind] = ctx.splitName(ctx.projName());
+    const [house, kind] = ctx.splitName(ctx.projNameOf(P().id));
     const tail = `${kind} ${house}`.toLocaleUpperCase("vi");
     return tab === "A" ? `B. TIẾN ĐỘ ${tail}` : `B. THỰC HIỆN TRONG TUẦN ${tail}`;
   };
@@ -435,6 +440,7 @@ export function initWeekly(ctx) {
   const zoneName = (d, id) => { const i = d.zones.findIndex((z) => z.id === id); return i < 0 ? null : d.zones[i]; };
 
   function render() {
+    if (W.ov) { W.pendingRender = true; return; }
     W.pendingRender = false;
     const box = $("wksec"); if (!box) return;
     if (!W.active || !P()) { box.innerHTML = ""; return; }
@@ -762,7 +768,7 @@ export function initWeekly(ctx) {
       const lg = new Image(); lg.src = "img/logo-daidung.png"; await lg.decode();
       const lh = headH - 20 * u; logoW = (lg.width / lg.height) * lh; c.drawImage(lg, M + 20 * u, M, logoW, lh);
     } catch (e) {}
-    const title = titleOf(tab), [house, kind] = ctx.splitName(ctx.projName());
+    const title = titleOf(tab), [house, kind] = ctx.splitName(ctx.projNameOf(P().id));
     const tail = `${kind} ${house}`.toLocaleUpperCase("vi");
     const k = title.toLocaleUpperCase("vi").lastIndexOf(tail);
     const t1 = k > 0 ? title.slice(0, k) : title, t2 = k > 0 ? title.slice(k) : "";
@@ -841,7 +847,7 @@ export function initWeekly(ctx) {
     // ----- Mặt bằng -----
     const mw = prj.width * B.sc, mh = prj.height * B.sc;
     const mx = B.mapX + (B.mapAW - mw) / 2, my = y0 + (B.mapAH - mh) / 2;
-    await ctx.drawPlanOn(c, prj, ctx.data, cutoff(), mx, my, B.sc, W.colored);
+    await ctx.drawPlanOn(c, prj, DATA(), cutoff(), mx, my, B.sc, W.colored);
     if (B.lg.h) {
       const L = B.lg; let ly = my + mh + gap;
       c.font = `${fs}px ${FONT}`; c.textAlign = "left"; c.textBaseline = "middle";
@@ -912,6 +918,63 @@ export function initWeekly(ctx) {
     } catch (e) { msg("Xuất PDF lỗi: " + e.message); }
   }
 
+  // Xuất tất cả mặt bằng có kế hoạch (tab A: kế hoạch tuần tới) / có báo cáo (tab B: tuần báo cáo) vào 1 file PDF, mỗi trang 1 mặt bằng.
+  // Mặt bằng không có vùng kế hoạch thì bỏ qua.
+  async function exportAllPdf() {
+    closeMenu();
+    const tab = W.tab, A = tab === "A", cs = curStart(), ns = nxtStart();
+    const list = ctx.projects(), cv0 = P();
+    let lib, doc = null, n = 0;
+    const skipped = [], failed = [];
+    try { lib = await ctx.loadScript(ctx.JSPDF_URL, "jspdf"); } catch (e) { msg("Không tải được thư viện PDF: " + e.message); return; }
+    try {
+      for (const meta of list) {
+        msg(`Đang xuất ${meta.name}… (${n} trang)`, true);
+        try {
+          const live = cv0 && meta.id === cv0.id;
+          let docs, cfg;
+          if (live) { docs = W.docs; cfg = W.cfg; }
+          else {
+            const [dc, dn, cf] = await Promise.all([ctx.be.getWeek(meta.id, wid(cs)), ctx.be.getWeek(meta.id, wid(ns)), ctx.be.getWeek(meta.id, "_cfg")]);
+            docs = { [wid(cs)]: Object.assign(empty(cs), dc || {}), [wid(ns)]: Object.assign(empty(ns), dn || {}) };
+            cfg = { kl: (cf && cf.kl) || {} };
+          }
+          const pd = docs[wid(A ? ns : cs)];
+          if (!pd || !(pd.zones || []).length) { skipped.push(meta.name); continue; }
+          const prj = live ? cv0 : await ctx.loadProject(meta.id);
+          const data = live ? ctx.data : ctx.remapData(prj, await ctx.be.getMongAll(meta.id));
+          W.ov = { prj, data, docs, cfg };
+          ctx.useStepNames(prj);
+          let cv;
+          try { cv = await renderPage(tab, 4200, 2970); }
+          finally { W.ov = null; ctx.useStepNames(ctx.P); }
+          if (!doc) doc = new lib.jsPDF({ orientation: "landscape", unit: "mm", format: "a3", compress: true });
+          else doc.addPage("a3", "landscape");
+          const k = Math.min(420 / cv.width, 297 / cv.height), w = cv.width * k, h = cv.height * k;
+          doc.addImage(cv.toDataURL("image/jpeg", 0.92), "JPEG", (420 - w) / 2, (297 - h) / 2, w, h, undefined, "FAST");
+          n++;
+        } catch (e) { W.ov = null; ctx.useStepNames(ctx.P); failed.push(meta.name + (e.code === "permission-denied" ? " (không có quyền)" : "")); }
+      }
+    } finally { W.ov = null; ctx.useStepNames(ctx.P); if (W.pendingRender) render(); drawZones(); }
+    if (!doc) { msg(`Không có mặt bằng nào có ${A ? "kế hoạch tuần " + dm(ns) + " – " + dm(nxtEnd()) : "kế hoạch cho tuần " + dm(cs) + " – " + dm(curEnd())}.` + (failed.length ? ` Lỗi: ${failed.join(", ")}.` : "")); return; }
+    doc.setProperties({ title: A ? `Kế hoạch tuần ${ns} – tất cả mặt bằng` : `Báo cáo tuần ${cs} – tất cả mặt bằng`, creator: "CFTN" });
+    doc.save(`${A ? "KeHoachTuan" : "BaoCaoTuan"}_TatCa_${A ? ns : cs}.pdf`);
+    msg(`Đã xuất ${n} mặt bằng.` + (skipped.length ? ` Bỏ qua ${skipped.length} mặt bằng không có kế hoạch.` : "") + (failed.length ? ` Lỗi: ${failed.join(", ")}.` : ""), !failed.length);
+  }
+  function openMenu(e) {
+    e.stopPropagation();
+    const m = $("wkPdfMenu"); m.hidden = !m.hidden;
+    if (!m.hidden) {
+      const r = $("wkPdf").getBoundingClientRect();
+      $("wkPdfAll").textContent = W.tab === "A" ? "Tất cả mặt bằng có kế hoạch tuần tới" : "Tất cả mặt bằng có kế hoạch tuần báo cáo";
+      m.classList.add("fixed");
+      m.style.top = r.bottom + 4 + "px";
+      m.style.left = Math.max(8, Math.min(r.right - m.offsetWidth, window.innerWidth - m.offsetWidth - 8)) + "px";
+      m.style.right = "auto";
+    }
+  }
+  function closeMenu() { const m = $("wkPdfMenu"); if (m) m.hidden = true; }
+
   // ---------- Gắn sự kiện thanh công cụ ----------
   function bind() {
     $("wkPrev").onclick = () => setStart(addDays(W.start, -7));
@@ -936,7 +999,10 @@ export function initWeekly(ctx) {
       }, 0);
     });
     $("wkPng").onclick = exportPng;
-    $("wkPdf").onclick = exportPdf;
+    $("wkPdf").onclick = openMenu;
+    $("wkPdfOne").onclick = () => { closeMenu(); exportPdf(); };
+    $("wkPdfAll").onclick = exportAllPdf;
+    document.addEventListener("click", (e) => { if (!e.target.closest || !e.target.closest(".wkpdfwrap")) closeMenu(); });
     document.addEventListener("keydown", (e) => {
       if (!W.active || W.tool !== "poly") return;
       if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;

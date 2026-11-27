@@ -7,7 +7,7 @@
 <link rel="icon" type="image/png" sizes="32x32" href="img/favicon-32.png">
 <link rel="icon" type="image/png" sizes="64x64" href="img/favicon-64.png">
 <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
-<link rel="stylesheet" href="css/style.css?v=20261126b">
+<link rel="stylesheet" href="css/style.css?v=20261127a">
 </head>
 <body>
 
@@ -77,7 +77,13 @@
     <label class="wk chk" title="Tô màu tiến độ cấu kiện trên mặt bằng và trong ảnh xuất"><input type="checkbox" id="wkColor" checked> Tô màu tiến độ</label>
     <span class="sep wk"></span>
     <button id="wkPng" class="wk" title="Tải ảnh trang báo cáo (16:9) để dán vào PowerPoint">🖼 Xuất ảnh</button>
-    <button id="wkPdf" class="wk" title="Xuất PDF khổ A3 ngang">📄 Xuất PDF</button>
+    <span class="pdfwrap wkpdfwrap wk">
+      <button id="wkPdf" title="Xuất PDF khổ A3 ngang">📄 Xuất PDF ▾</button>
+      <div id="wkPdfMenu" class="menu" hidden>
+        <button id="wkPdfOne">Mặt bằng đang xem</button>
+        <button id="wkPdfAll">Tất cả mặt bằng có kế hoạch tuần tới</button>
+      </div>
+    </span>
   </div>
 
   <main>
@@ -124,6 +130,6 @@
   </div>
 </div>
 
-<script type="module" src="js/app.js?v=20261126b"></script>
+<script type="module" src="js/app.js?v=20261127a"></script>
 </body>
 </html>

@@ -107,6 +107,11 @@ export function watchWeek(projectId, wid, cb, err) {
     (s) => cb(s.exists() ? s.data() : null, s.metadata), err);
 }
 
+export async function getWeek(projectId, wid) {
+  const s = await F.getDoc(F.doc(db, "projects", projectId, "weeks", wid));
+  return s.exists() ? s.data() : null;
+}
+
 export function saveWeek(projectId, wid, data) {
   return F.setDoc(F.doc(db, "projects", projectId, "weeks", wid), data);
 }
